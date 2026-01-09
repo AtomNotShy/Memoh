@@ -36,24 +36,12 @@ importers:
 
   packages/agent:
     dependencies:
-      '@ai-sdk/anthropic':
-        specifier: ^3.0.7
-        version: 3.0.7(zod@4.3.5)
-      '@ai-sdk/google':
-        specifier: ^3.0.6
-        version: 3.0.6(zod@4.3.5)
-      '@ai-sdk/openai':
-        specifier: ^3.0.7
-        version: 3.0.7(zod@4.3.5)
-      '@byteagent/shared':
-        specifier: workspace:*
-        version: link:../shared
-      ai:
-        specifier: ^6.0.14
-        version: 6.0.14(zod@4.3.5)
       dotenv:
         specifier: ^17.2.3
         version: 17.2.3
+      xsai:
+        specifier: ^0.4.1
+        version: 0.4.1(zod@4.3.5)
       zod:
         specifier: ^4.3.5
         version: 4.3.5
@@ -89,6 +77,18 @@ importers:
       tsx:
         specifier: ^4.21.0
         version: 4.21.0
+
+  packages/memory:
+    dependencies:
+      '@byteagent/db':
+        specifier: workspace:*
+        version: link:../db
+      drizzle-orm:
+        specifier: ^0.45.1
+        version: 0.45.1(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(bun-types@1.3.5)(pg@8.16.3)
+      xsai:
+        specifier: ^0.4.1
+        version: 0.4.1(zod@4.3.5)
 
   packages/shared: {}
 
@@ -221,40 +221,6 @@ importers:
         version: 3.2.2(typescript@5.9.3)
 
 packages:
-
-  '@ai-sdk/anthropic@3.0.7':
-    resolution: {integrity: sha512-WFE56yxgjecd77f8pNj1TkusfCKh34E4h+0J0qVOKDNFXuOsZiAb6dIG9Q3PUrwY1MuiMQLD/9ir0s+dVcVfeA==}
-    engines: {node: '>=18'}
-    peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
-
-  '@ai-sdk/gateway@3.0.9':
-    resolution: {integrity: sha512-EA5dZIukimwoJ9HIPuuREotAqaTItpdc/yImzVF0XGNg7B0YRJmYI8Uq3aCMr87vjr1YB1cWUfnrTt6OJ9eHiQ==}
-    engines: {node: '>=18'}
-    peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
-
-  '@ai-sdk/google@3.0.6':
-    resolution: {integrity: sha512-Nr7E+ouWd/bKO9SFlgLnJJ1+fiGHC07KAeFr08faT+lvkECWlxVox3aL0dec8uCgBDUghYbq7f4S5teUrCc+QQ==}
-    engines: {node: '>=18'}
-    peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
-
-  '@ai-sdk/openai@3.0.7':
-    resolution: {integrity: sha512-CBoYn1U59Lop8yBL9KuVjHCKc/B06q9Qo0SasRwHoyMEq+X4I8LQZu3a8Ck1jwwcZTTxfyiExB70LtIRSynBDA==}
-    engines: {node: '>=18'}
-    peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
-
-  '@ai-sdk/provider-utils@4.0.4':
-    resolution: {integrity: sha512-VxhX0B/dWGbpNHxrKCWUAJKXIXV015J4e7qYjdIU9lLWeptk0KMLGcqkB4wFxff5Njqur8dt8wRi1MN9lZtDqg==}
-    engines: {node: '>=18'}
-    peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
-
-  '@ai-sdk/provider@3.0.2':
-    resolution: {integrity: sha512-HrEmNt/BH/hkQ7zpi2o6N3k1ZR1QTb7z85WYhYygiTxOQuaml4CMtHCWRbric5WPU+RNsYI7r1EpyVQMKO1pYw==}
-    engines: {node: '>=18'}
 
   '@babel/code-frame@7.27.1':
     resolution: {integrity: sha512-cjQ7ZlQ0Mv3b47hABuTevyTuYN4i+loJKGeV9flcCgIK37cCXRh+L1bd3iBHlynerhQ7BhCkn2BPbQUL+rGqFg==}
@@ -1352,10 +1318,6 @@ packages:
     resolution: {integrity: sha512-ink3/Zofus34nmBsPjow63FP5M7IGff0RKAgqR6+CFpdk22M7aLwC9gOcLGYqr7MczLPzZVERW9hRog3O4n1sQ==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
 
-  '@vercel/oidc@3.1.0':
-    resolution: {integrity: sha512-Fw28YZpRnA3cAHHDlkt7xQHiJ0fcL+NRcIqsocZQUSmbzeIKRpwttJjik5ZGanXP+vlA4SbTg+AbA3bP363l+w==}
-    engines: {node: '>= 20'}
-
   '@vitejs/plugin-vue@6.0.3':
     resolution: {integrity: sha512-TlGPkLFLVOY3T7fZrwdvKpjprR3s4fxRln0ORDo1VQ7HHyxJwTlrjKU3kpVWTlaAjIEuCTokmjkZnr8Tpc925w==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -1505,6 +1467,54 @@ packages:
     peerDependencies:
       vue: ^3.5.0
 
+  '@xsai/embed@0.4.1':
+    resolution: {integrity: sha512-Ta/qk7Hzbzp6L0KUkyqWv4OXBaptP+F8vBpnNvLxmgJPS+EUlUOddNWBTo1rpLON8bLCt3d5nZzEEwx53PauUw==}
+
+  '@xsai/generate-image@0.4.1':
+    resolution: {integrity: sha512-PmXRCdRWFJRh6U+sCpxKK03w9hUdIfO2XYow3I/BGGrcZm3oZ36bLLnIqW63I93pF1wzDu0qZ/3uLGqd11dwOg==}
+
+  '@xsai/generate-object@0.4.1':
+    resolution: {integrity: sha512-0nJw8RVutGyzV4Iqz/42qHKr75KTw2QBximo1Ku1H4FL0zZxvFgR6rfJjutcKgeL1ktsFDObRuCKBJl2KFiq5g==}
+
+  '@xsai/generate-speech@0.4.1':
+    resolution: {integrity: sha512-eea0K1oyCd0RBHbtX6iTIvQpIsqwmX23B93B20okT1ut8/b79KLogn+3CAl2ESDj217bmPJch+S+cZfp3u5eFw==}
+
+  '@xsai/generate-text@0.4.1':
+    resolution: {integrity: sha512-FGqo19K0aNxn3hOW+zW43xvVq/ukg353PhcQowNt/AGa1snsjNTsbw+9aBXLSdFLINH3sjd/q4rsyg2Ld7GoxQ==}
+
+  '@xsai/generate-transcription@0.4.1':
+    resolution: {integrity: sha512-VoWe1zm1d8i7d+HImRvoTnrBUHVmNIjlbNibrcXbvA7olQect65Wh5CEMpnThfQcaVa+L8/5wMh8oV5KlCuCAw==}
+
+  '@xsai/model@0.4.1':
+    resolution: {integrity: sha512-rhXcKQnJWFWPfvo3UUw1eRXeNWD8IEu/EFw01FZ/MGiQ3TEMppXIiQSLkQFiWylfx5TrucQIzEbE/QBKjdWfkg==}
+
+  '@xsai/shared-chat@0.4.1':
+    resolution: {integrity: sha512-6pyjFs9oKi2jSjtZBk4QNF5RM5b63aUrSJ8e46xvaeMIpsK6hec3ay7X4r81annhb/HpMNOQrfbxCQsTcWalhA==}
+
+  '@xsai/shared@0.4.1':
+    resolution: {integrity: sha512-WptfJwv0ajc22UNvMgSbM2wCtJDWok6x3svljETMc3ycknHE3w5XQ6whbASdbeDJomb/MtGhFhaHYVQZQnqHIw==}
+
+  '@xsai/stream-object@0.4.1':
+    resolution: {integrity: sha512-3k2ulDTRkWfW/Y76YBmohmigl0CNQBTI7oEmXpU8LBqETty7wEZgfiXNqq7cfbhPk9iAA2DPsS7NPA9H+aP2Yw==}
+
+  '@xsai/stream-text@0.4.1':
+    resolution: {integrity: sha512-Eq+b3knPB0YEpL6lnW08RZETEgCm07Q1XaP6YUO4Y81FF0q8dztyLXxtmAck1t7GV5eI7fTBRMxP6iQzwabomA==}
+
+  '@xsai/stream-transcription@0.4.1':
+    resolution: {integrity: sha512-kJe7CLbiNd2151ZGbVKVoirATQbmzn/qH786MhtpYOpMAN4SEnoREbc/TOeggoJ30k0+Q9j1CdwpKYr54zhoug==}
+
+  '@xsai/tool@0.4.1':
+    resolution: {integrity: sha512-SnPMRPUUbhK1MdOZZoN+nY3jR/ntsfQ1//HnUvHWXdGWo47cmYuiVN7wwlsGACkG8VHJkR3BSxL6wfNQ/toozA==}
+
+  '@xsai/utils-chat@0.4.1':
+    resolution: {integrity: sha512-nSDbBI5mdLR21l44a1cJQPKO/OGqT3qmVMI2y/XIJTU+opG/z/0RRIRE/RwOfisWGYZu3IvNTAvUdOZS6aOTXQ==}
+
+  '@xsai/utils-reasoning@0.4.1':
+    resolution: {integrity: sha512-365G0/ccfNYqXz7Gnt+bZSZFxtChjanXAn5MPiDGxhP2h22qYmw5zUM6ihUdqaVHke7Ons5ooV+SayVuls2Kiw==}
+
+  '@xsai/utils-stream@0.4.1':
+    resolution: {integrity: sha512-u3kgR0XuFs5NWf6etuZu7dhJTFQmT9cjBsxpllo5ZhJEjrknVttuVGfs45xHRjz6q/SBtyPDjzAG6JdrtUAl3Q==}
+
   acorn-jsx@5.3.2:
     resolution: {integrity: sha512-rq9s+JNhf0IChjtDXxllJ7g41oZk5SlXtp0LHwyA5cejwn7vKmKp4pPri6YEePv2PU65sAsegbXtIinmDFDXgQ==}
     peerDependencies:
@@ -1514,12 +1524,6 @@ packages:
     resolution: {integrity: sha512-NZyJarBfL7nWwIq+FDL6Zp/yHEhePMNnnJ0y3qfieCrmNvYct8uvtiV41UvlSe6apAfk0fY1FbWx+NwfmpvtTg==}
     engines: {node: '>=0.4.0'}
     hasBin: true
-
-  ai@6.0.14:
-    resolution: {integrity: sha512-OaEJFeQ3gb45eZtC/lSNKqAxmsrqWxC8wLmIVXFYAMvPXE3lb96zIdS3swYArR4uXOVt6N7H/XZSyQz/Dl+HTw==}
-    engines: {node: '>=18'}
-    peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
 
   ajv-draft-04@1.0.0:
     resolution: {integrity: sha512-mv00Te6nmYbRp5DCwclxtt7yV/joXJPGS7nM+97GdxvuttCOfgI3K4U25zboyeX0O+myI8ERluxQe5wljMmVIw==}
@@ -1930,10 +1934,6 @@ packages:
     resolution: {integrity: sha512-kVscqXk4OCp68SZ0dkgEKVi6/8ij300KBWTJq32P/dYeWTSwK41WyTxalN1eRmA5Z9UU/LX9D7FWSmV9SAYx6g==}
     engines: {node: '>=0.10.0'}
 
-  eventsource-parser@3.0.6:
-    resolution: {integrity: sha512-Vo1ab+QXPzZ4tCa8SwIHJFaSzy4R6SHf7BY79rFBDf0idraZWAkYrDjDj8uWaSm3S2TK+hJ7/t1CEmZ7jXw+pg==}
-    engines: {node: '>=18.0.0'}
-
   exact-mirror@0.2.6:
     resolution: {integrity: sha512-7s059UIx9/tnOKSySzUk5cPGkoILhTE4p6ncf6uIPaQ+9aRBQzQjc9+q85l51+oZ+P6aBxh084pD0CzBQPcFUA==}
     peerDependencies:
@@ -2121,9 +2121,6 @@ packages:
 
   json-schema-traverse@1.0.0:
     resolution: {integrity: sha512-NM8/P9n3XjXhIZn1lLhkFaACTOURQXjWhV4BA/RnOv8xvgqtqpAX9IO4mRQxSx1Rlo4tqzeqb0sOlruaOy3dug==}
-
-  json-schema@0.4.0:
-    resolution: {integrity: sha512-es94M3nTIfsEPisRafak+HDLfHXnKBhV3vU5eqPcS3flIWqcxJWgXHXiey3YrpaNsanY5ei1VoYEbOzijuq9BA==}
 
   json-stable-stringify-without-jsonify@1.0.1:
     resolution: {integrity: sha512-Bdboy+l7tA3OGW6FjyFHWkP5LuByj1Tk33Ljyq0axyzdk9//JSi2u3fP1QSmd1KNwq6VOKYGlAu87CisVir6Pw==}
@@ -2914,6 +2911,32 @@ packages:
     resolution: {integrity: sha512-ICP2e+jsHvAj2E2lIHxa5tjXRlKDJo4IdvPvCXbXQGdzSfmSpNVyIKMvoZHjDY9DP0zV17iI85o90vRFXNccRw==}
     engines: {node: '>=12'}
 
+  xsai@0.4.1:
+    resolution: {integrity: sha512-HvhJYWyaQz+t/8Jntt0SsZAH6Ty7+EjDDdH2BVz7ftaEF9t6Cxr0Cb+17prsCPQnI99my/vS4T70OyPrxUbiew==}
+
+  xsschema@0.4.1:
+    resolution: {integrity: sha512-v4kWVUoqF73IFDxONxb9cvl6EXolas1zUnS1ajR8d8RZdM897ByxHaTqw3QOPspuiLl3ML86Mk0ccVfwURHEBw==}
+    peerDependencies:
+      '@valibot/to-json-schema': ^1.0.0
+      arktype: ^2.1.20
+      effect: ^3.16.0
+      sury: ^10.0.0
+      zod: ^3.25.0 || ^4.0.0
+      zod-to-json-schema: ^3.25.0
+    peerDependenciesMeta:
+      '@valibot/to-json-schema':
+        optional: true
+      arktype:
+        optional: true
+      effect:
+        optional: true
+      sury:
+        optional: true
+      zod:
+        optional: true
+      zod-to-json-schema:
+        optional: true
+
   xtend@4.0.2:
     resolution: {integrity: sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ==}
     engines: {node: '>=0.4'}
@@ -2932,42 +2955,6 @@ packages:
     resolution: {integrity: sha512-k7Nwx6vuWx1IJ9Bjuf4Zt1PEllcwe7cls3VNzm4CQ1/hgtFUK2bRNG3rvnpPUhFjmqJKAKtjV576KnUkHocg/g==}
 
 snapshots:
-
-  '@ai-sdk/anthropic@3.0.7(zod@4.3.5)':
-    dependencies:
-      '@ai-sdk/provider': 3.0.2
-      '@ai-sdk/provider-utils': 4.0.4(zod@4.3.5)
-      zod: 4.3.5
-
-  '@ai-sdk/gateway@3.0.9(zod@4.3.5)':
-    dependencies:
-      '@ai-sdk/provider': 3.0.2
-      '@ai-sdk/provider-utils': 4.0.4(zod@4.3.5)
-      '@vercel/oidc': 3.1.0
-      zod: 4.3.5
-
-  '@ai-sdk/google@3.0.6(zod@4.3.5)':
-    dependencies:
-      '@ai-sdk/provider': 3.0.2
-      '@ai-sdk/provider-utils': 4.0.4(zod@4.3.5)
-      zod: 4.3.5
-
-  '@ai-sdk/openai@3.0.7(zod@4.3.5)':
-    dependencies:
-      '@ai-sdk/provider': 3.0.2
-      '@ai-sdk/provider-utils': 4.0.4(zod@4.3.5)
-      zod: 4.3.5
-
-  '@ai-sdk/provider-utils@4.0.4(zod@4.3.5)':
-    dependencies:
-      '@ai-sdk/provider': 3.0.2
-      '@standard-schema/spec': 1.1.0
-      eventsource-parser: 3.0.6
-      zod: 4.3.5
-
-  '@ai-sdk/provider@3.0.2':
-    dependencies:
-      json-schema: 0.4.0
 
   '@babel/code-frame@7.27.1':
     dependencies:
@@ -3554,7 +3541,8 @@ snapshots:
 
   '@microsoft/tsdoc@0.16.0': {}
 
-  '@opentelemetry/api@1.9.0': {}
+  '@opentelemetry/api@1.9.0':
+    optional: true
 
   '@polka/url@1.0.0-next.29': {}
 
@@ -3887,8 +3875,6 @@ snapshots:
       '@typescript-eslint/types': 8.52.0
       eslint-visitor-keys: 4.2.1
 
-  '@vercel/oidc@3.1.0': {}
-
   '@vitejs/plugin-vue@6.0.3(vite@7.3.0(@types/node@24.10.4)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0))(vue@3.5.26(typescript@5.9.3))':
     dependencies:
       '@rolldown/pluginutils': 1.0.0-beta.53
@@ -4120,19 +4106,96 @@ snapshots:
     dependencies:
       vue: 3.5.26(typescript@5.9.3)
 
+  '@xsai/embed@0.4.1':
+    dependencies:
+      '@xsai/shared': 0.4.1
+
+  '@xsai/generate-image@0.4.1':
+    dependencies:
+      '@xsai/shared': 0.4.1
+
+  '@xsai/generate-object@0.4.1(zod@4.3.5)':
+    dependencies:
+      '@xsai/generate-text': 0.4.1
+      xsschema: 0.4.1(zod@4.3.5)
+    transitivePeerDependencies:
+      - '@valibot/to-json-schema'
+      - arktype
+      - effect
+      - sury
+      - zod
+      - zod-to-json-schema
+
+  '@xsai/generate-speech@0.4.1':
+    dependencies:
+      '@xsai/shared': 0.4.1
+
+  '@xsai/generate-text@0.4.1':
+    dependencies:
+      '@xsai/shared': 0.4.1
+      '@xsai/shared-chat': 0.4.1
+
+  '@xsai/generate-transcription@0.4.1':
+    dependencies:
+      '@xsai/shared': 0.4.1
+
+  '@xsai/model@0.4.1':
+    dependencies:
+      '@xsai/shared': 0.4.1
+
+  '@xsai/shared-chat@0.4.1':
+    dependencies:
+      '@xsai/shared': 0.4.1
+
+  '@xsai/shared@0.4.1': {}
+
+  '@xsai/stream-object@0.4.1(zod@4.3.5)':
+    dependencies:
+      '@xsai/stream-text': 0.4.1
+      xsschema: 0.4.1(zod@4.3.5)
+    transitivePeerDependencies:
+      - '@valibot/to-json-schema'
+      - arktype
+      - effect
+      - sury
+      - zod
+      - zod-to-json-schema
+
+  '@xsai/stream-text@0.4.1':
+    dependencies:
+      '@xsai/shared': 0.4.1
+      '@xsai/shared-chat': 0.4.1
+
+  '@xsai/stream-transcription@0.4.1':
+    dependencies:
+      '@xsai/shared': 0.4.1
+
+  '@xsai/tool@0.4.1(zod@4.3.5)':
+    dependencies:
+      '@xsai/shared': 0.4.1
+      '@xsai/shared-chat': 0.4.1
+      xsschema: 0.4.1(zod@4.3.5)
+    transitivePeerDependencies:
+      - '@valibot/to-json-schema'
+      - arktype
+      - effect
+      - sury
+      - zod
+      - zod-to-json-schema
+
+  '@xsai/utils-chat@0.4.1':
+    dependencies:
+      '@xsai/shared-chat': 0.4.1
+
+  '@xsai/utils-reasoning@0.4.1': {}
+
+  '@xsai/utils-stream@0.4.1': {}
+
   acorn-jsx@5.3.2(acorn@8.15.0):
     dependencies:
       acorn: 8.15.0
 
   acorn@8.15.0: {}
-
-  ai@6.0.14(zod@4.3.5):
-    dependencies:
-      '@ai-sdk/gateway': 3.0.9(zod@4.3.5)
-      '@ai-sdk/provider': 3.0.2
-      '@ai-sdk/provider-utils': 4.0.4(zod@4.3.5)
-      '@opentelemetry/api': 1.9.0
-      zod: 4.3.5
 
   ajv-draft-04@1.0.0(ajv@8.13.0):
     optionalDependencies:
@@ -4514,8 +4577,6 @@ snapshots:
 
   esutils@2.0.3: {}
 
-  eventsource-parser@3.0.6: {}
-
   exact-mirror@0.2.6(@sinclair/typebox@0.34.47):
     optionalDependencies:
       '@sinclair/typebox': 0.34.47
@@ -4654,8 +4715,6 @@ snapshots:
   json-schema-traverse@0.4.1: {}
 
   json-schema-traverse@1.0.0: {}
-
-  json-schema@0.4.0: {}
 
   json-stable-stringify-without-jsonify@1.0.1: {}
 
@@ -5382,6 +5441,36 @@ snapshots:
       is-wsl: 3.1.0
 
   xml-name-validator@4.0.0: {}
+
+  xsai@0.4.1(zod@4.3.5):
+    dependencies:
+      '@xsai/embed': 0.4.1
+      '@xsai/generate-image': 0.4.1
+      '@xsai/generate-object': 0.4.1(zod@4.3.5)
+      '@xsai/generate-speech': 0.4.1
+      '@xsai/generate-text': 0.4.1
+      '@xsai/generate-transcription': 0.4.1
+      '@xsai/model': 0.4.1
+      '@xsai/shared': 0.4.1
+      '@xsai/shared-chat': 0.4.1
+      '@xsai/stream-object': 0.4.1(zod@4.3.5)
+      '@xsai/stream-text': 0.4.1
+      '@xsai/stream-transcription': 0.4.1
+      '@xsai/tool': 0.4.1(zod@4.3.5)
+      '@xsai/utils-chat': 0.4.1
+      '@xsai/utils-reasoning': 0.4.1
+      '@xsai/utils-stream': 0.4.1
+    transitivePeerDependencies:
+      - '@valibot/to-json-schema'
+      - arktype
+      - effect
+      - sury
+      - zod
+      - zod-to-json-schema
+
+  xsschema@0.4.1(zod@4.3.5):
+    optionalDependencies:
+      zod: 4.3.5
 
   xtend@4.0.2: {}
 

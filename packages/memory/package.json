@@ -1,0 +1,21 @@
+{
+  "name": "@byteagent/memory",
+  "version": "1.0.0",
+  "description": "",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.27.0",
+  "dependencies": {
+    "@byteagent/db": "workspace:*",
+    "drizzle-orm": "^0.45.1",
+    "xsai": "^0.4.1"
+  }
+}
