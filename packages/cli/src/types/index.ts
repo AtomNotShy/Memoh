@@ -72,12 +72,69 @@ export interface Schedule {
 export interface Platform {
   id: string
   name: string
-  endpoint: string
   config: Record<string, unknown>
   active: boolean
   createdAt: string
   updatedAt: string
 }
+
+// Platform configuration definitions
+export interface PlatformConfigField {
+  name: string
+  message: string
+  type?: 'input' | 'password' | 'number'
+  required?: boolean
+  default?: string | number
+  validate?: (value: string) => boolean | string
+}
+
+export interface PlatformDefinition {
+  name: string
+  displayName: string
+  description: string
+  configFields: PlatformConfigField[]
+}
+
+// Platform configurations
+export const PLATFORM_DEFINITIONS: PlatformDefinition[] = [
+  {
+    name: 'telegram',
+    displayName: 'Telegram',
+    description: 'Telegram Bot Platform',
+    configFields: [
+      {
+        name: 'botToken',
+        message: 'Bot Token:',
+        type: 'password',
+        required: true,
+        validate: (value: string) => {
+          if (!value.trim()) return 'Bot token is required'
+          return true
+        },
+      },
+    ],
+  },
+  // Future platforms can be added here
+  // {
+  //   name: 'discord',
+  //   displayName: 'Discord',
+  //   description: 'Discord Bot Platform',
+  //   configFields: [
+  //     {
+  //       name: 'botToken',
+  //       message: 'Bot Token:',
+  //       type: 'password',
+  //       required: true,
+  //     },
+  //     {
+  //       name: 'clientId',
+  //       message: 'Client ID:',
+  //       type: 'input',
+  //       required: true,
+  //     },
+  //   ],
+  // },
+]
 
 export interface MCPConnection {
   id: string

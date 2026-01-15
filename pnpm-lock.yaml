@@ -132,6 +132,12 @@ importers:
       '@memoh/memory':
         specifier: workspace:*
         version: link:../memory
+      '@memoh/platform':
+        specifier: workspace:*
+        version: link:../platform
+      '@memoh/platform-telegram':
+        specifier: workspace:*
+        version: link:../platform-telegram
       '@memoh/shared':
         specifier: workspace:*
         version: link:../shared
@@ -270,6 +276,9 @@ importers:
       '@memoh/platform':
         specifier: workspace:*
         version: link:../platform
+      '@memoh/shared':
+        specifier: workspace:*
+        version: link:../shared
       dotenv:
         specifier: ^16.4.7
         version: 16.6.1

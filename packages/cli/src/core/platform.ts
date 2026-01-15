@@ -3,7 +3,6 @@ import type { Platform, ApiResponse } from '../types'
 
 export interface CreatePlatformParams {
   name: string
-  endpoint: string
   config: Record<string, unknown>
   active?: boolean
 }
@@ -11,7 +10,6 @@ export interface CreatePlatformParams {
 export interface PlatformListItem {
   id: string
   name: string
-  endpoint: string
   config: Record<string, unknown>
   active: boolean
   createdAt: string
@@ -48,7 +46,6 @@ export async function createPlatform(params: CreatePlatformParams): Promise<Plat
 
   const payload: Record<string, unknown> = {
     name: params.name,
-    endpoint: params.endpoint,
     config: params.config,
     active: params.active ?? true,
   }

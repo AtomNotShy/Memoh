@@ -21,6 +21,8 @@
     "@memoh/db": "workspace:*",
     "@memoh/memory": "workspace:*",
     "@memoh/shared": "workspace:*",
+    "@memoh/platform": "workspace:*",
+    "@memoh/platform-telegram": "workspace:*",
     "drizzle-orm": "^0.45.1",
     "elysia": "latest",
     "node-cron": "^4.2.1",

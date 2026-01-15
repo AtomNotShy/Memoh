@@ -3,15 +3,12 @@ import { platform } from '@memoh/db/schema'
 import { Platform } from '@memoh/shared'
 import { eq, sql, desc, asc } from 'drizzle-orm'
 import { calculateOffset, createPaginatedResult, type PaginatedResult } from '../../utils/pagination'
-import path from 'node:path'
+import { BasePlatform } from '@memoh/platform'
+import { TelegramPlatform } from '@memoh/platform-telegram'
 
-/**
- * 平台列表返回类型
- */
 type PlatformListItem = {
   id: string
   name: string
-  endpoint: string
   config: Record<string, unknown>
   active: boolean
   createdAt: Date
@@ -72,7 +69,6 @@ export const createPlatform = async (data: Omit<Platform, 'id'>) => {
     .insert(platform)
     .values({
       name: data.name,
-      endpoint: data.endpoint,
       config: data.config,
       active: data.active ?? true,
     })
@@ -81,7 +77,6 @@ export const createPlatform = async (data: Omit<Platform, 'id'>) => {
     await activePlatform({
       id: newPlatform.id,
       name: newPlatform.name,
-      endpoint: newPlatform.endpoint,
       config: newPlatform.config as Record<string, unknown>,
       active: newPlatform.active,
     })
@@ -92,7 +87,6 @@ export const createPlatform = async (data: Omit<Platform, 'id'>) => {
 export const updatePlatform = async (id: string, data: Partial<Omit<Platform, 'id'>>) => {
   const updateData: {
     name?: string
-    endpoint?: string
     config?: Record<string, unknown>
     active?: boolean
     updatedAt: Date
@@ -101,7 +95,6 @@ export const updatePlatform = async (id: string, data: Partial<Omit<Platform, 'i
   }
 
   if (data.name !== undefined) updateData.name = data.name
-  if (data.endpoint !== undefined) updateData.endpoint = data.endpoint
   if (data.config !== undefined) updateData.config = data.config
   if (data.active !== undefined) updateData.active = data.active
 
@@ -135,23 +128,29 @@ export const updatePlatformConfig = async (id: string, config: Record<string, un
 
 // active
 
+export const platformConstructors: Record<string, typeof BasePlatform> = {
+  telegram: TelegramPlatform,
+}
+
+export const platforms = new Map<string, BasePlatform>()
+
 export const activePlatform = async (platform: Platform) => {
-  await fetch(path.join(platform.endpoint, '/start'), {
-    method: 'POST',
-    body: JSON.stringify(platform.config),
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  })
+  const Constructor = platformConstructors[platform.name]
+  if (!Constructor) {
+    throw new Error('Platform constructor not found')
+  }
+  const platformInstance = new Constructor()
+  await platformInstance.start(platform.config)
+  platforms.set(platform.name, platformInstance)
 }
 
 export const inactivePlatform = async (platform: Platform) => {
-  await fetch(path.join(platform.endpoint, '/stop'), {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  })
+  const platformInstance = platforms.get(platform.name)
+  if (!platformInstance) {
+    throw new Error('Platform not found')
+  }
+  await platformInstance.stop()
+  platforms.delete(platform.name)
 }
 
 export const setActivePlatform = async (id: string, active: boolean) => {
@@ -162,7 +161,6 @@ export const setActivePlatform = async (id: string, active: boolean) => {
   const platformData: Platform = {
     id: currentPlatform.id,
     name: currentPlatform.name,
-    endpoint: currentPlatform.endpoint,
     config: currentPlatform.config as Record<string, unknown>,
     active: active,
   }
@@ -187,11 +185,9 @@ export const sendMessageToPlatform = async (name: string, options: {
   if (!currentPlatform) {
     throw new Error('Platform not found')
   }
-  await fetch(path.join(currentPlatform.endpoint, '/send'), {
-    method: 'POST',
-    body: JSON.stringify(options),
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  })
+  const platformInstance = platforms.get(currentPlatform.name)
+  if (!platformInstance) {
+    throw new Error('Platform not found')
+  }
+  await platformInstance.send(options)
 }

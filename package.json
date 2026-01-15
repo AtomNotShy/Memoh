@@ -16,8 +16,6 @@
     "db:migrate": "pnpm --filter @memoh/db migrate",
     "db:generate": "pnpm --filter @memoh/db generate",
     "db:studio": "pnpm --filter @memoh/db studio",
-    "telegram:start": "pnpm --filter @memoh/platform-telegram start",
-    "telegram:dev": "pnpm --filter @memoh/platform-telegram dev",
     "cli": "pnpm --filter @memoh/client start",
     "docs:dev": "pnpm --filter @memoh/docs dev",
     "docs:build": "pnpm --filter @memoh/docs build",

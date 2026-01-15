@@ -10,7 +10,6 @@
     "memoh-tg-bot": "./src/bot.ts"
   },
   "scripts": {
-    "start": "bun run src/bot.ts",
     "dev": "bun run --watch src/bot.ts"
   },
   "keywords": [],
@@ -20,6 +19,7 @@
   "dependencies": {
     "@memoh/client": "workspace:*",
     "@memoh/platform": "workspace:*",
+    "@memoh/shared": "workspace:*",
     "dotenv": "^16.4.7",
     "ioredis": "^5.9.1",
     "telegraf": "^4.16.3",

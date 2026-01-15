@@ -6,6 +6,7 @@ import { table } from 'table'
 import * as platformCore from '../../core/platform'
 import { formatError } from '../../utils'
 import { getApiUrl } from '../../core/client'
+import { PLATFORM_DEFINITIONS, type PlatformDefinition } from '../../types'
 
 export function platformCommands(program: Command) {
   program
@@ -23,11 +24,10 @@ export function platformCommands(program: Command) {
         }
 
         const tableData = [
-          ['ID', 'Name', 'Endpoint', 'Active', 'Created'],
+          ['ID', 'Name', 'Active', 'Created'],
           ...platforms.map((item) => [
             item.id.substring(0, 8) + '...',
             item.name,
-            item.endpoint,
             item.active ? chalk.green('✓ Active') : chalk.dim('✗ Inactive'),
             new Date(item.createdAt).toLocaleDateString(),
           ]),
@@ -55,83 +55,73 @@ export function platformCommands(program: Command) {
   program
     .command('create')
     .description('Create platform configuration')
-    .option('-n, --name <name>', 'Platform name')
-    .option('-e, --endpoint <endpoint>', 'Platform endpoint URL')
-    .option('-c, --config <config>', 'Platform config (JSON string)')
-    .option('-a, --active', 'Set platform as active', true)
-    .action(async (options) => {
+    .action(async () => {
       try {
-        let { name, endpoint, config, active } = options
+        // Step 1: Select platform type
+        const { platformType } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'platformType',
+            message: 'Select platform type:',
+            choices: PLATFORM_DEFINITIONS.map((def) => ({
+              name: `${def.displayName} - ${def.description}`,
+              value: def.name,
+            })),
+          },
+        ])
 
-        if (!name || !endpoint) {
-          const answers = await inquirer.prompt([
+        const platformDef = PLATFORM_DEFINITIONS.find((def) => def.name === platformType)
+        if (!platformDef) {
+          console.error(chalk.red('Invalid platform type'))
+          process.exit(1)
+        }
+
+        // Step 2: Collect platform-specific config
+        console.log(chalk.cyan(`\nConfiguring ${platformDef.displayName}...\n`))
+
+        const configAnswers: Record<string, unknown> = {}
+        for (const field of platformDef.configFields) {
+          const answer = await inquirer.prompt([
             {
-              type: 'input',
-              name: 'name',
-              message: 'Platform name:',
-              when: !name,
-              validate: (value: string) => {
-                if (value.trim()) return true
-                return 'Platform name is required'
-              },
-            },
-            {
-              type: 'input',
-              name: 'endpoint',
-              message: 'Platform endpoint URL:',
-              when: !endpoint,
-              validate: (value: string) => {
-                if (value.trim()) return true
-                return 'Endpoint is required'
-              },
-            },
-            {
-              type: 'input',
-              name: 'config',
-              message: 'Platform config (JSON string):',
-              default: '{}',
-              when: !config,
-            },
-            {
-              type: 'confirm',
-              name: 'active',
-              message: 'Set as active?',
-              default: true,
-              when: active === undefined,
+              type: field.type || 'input',
+              name: field.name,
+              message: field.message,
+              default: field.default,
+              validate: field.validate || ((value: string) => {
+                if (field.required && !value?.toString().trim()) {
+                  return `${field.name} is required`
+                }
+                return true
+              }),
             },
           ])
-
-          name = name || answers.name
-          endpoint = endpoint || answers.endpoint
-          config = config || answers.config
-          active = active ?? answers.active
+          configAnswers[field.name] = answer[field.name]
         }
 
-        // Parse config JSON
-        let configObj: Record<string, unknown> = {}
-        if (config) {
-          try {
-            configObj = JSON.parse(config)
-          } catch {
-            console.error(chalk.red('Invalid JSON config'))
-            process.exit(1)
-          }
-        }
+        // Step 3: Confirm active status
+        const { active } = await inquirer.prompt([
+          {
+            type: 'confirm',
+            name: 'active',
+            message: 'Set as active?',
+            default: true,
+          },
+        ])
 
         const spinner = ora('Creating platform configuration...').start()
 
         const platform = await platformCore.createPlatform({
-          name,
-          endpoint,
-          config: configObj,
+          name: platformType,
+          config: configAnswers,
           active,
         })
 
         spinner.succeed(chalk.green('Platform configuration created successfully'))
-        console.log(chalk.blue(`Name: ${platform.name}`))
-        console.log(chalk.blue(`Endpoint: ${platform.endpoint}`))
+        console.log(chalk.blue(`\nPlatform: ${platformDef.displayName}`))
+        console.log(chalk.blue(`Type: ${platform.name}`))
         console.log(chalk.blue(`Active: ${platform.active ? 'Yes' : 'No'}`))
         console.log(chalk.blue(`ID: ${platform.id}`))
+        console.log(chalk.dim(`\nConfig: ${JSON.stringify(platform.config, null, 2)}`))
       } catch (error) {
         console.error(chalk.red(formatError(error)))
         process.exit(1)
@@ -145,10 +135,11 @@ export function platformCommands(program: Command) {
       const spinner = ora('Fetching platform configuration...').start()
       try {
         const platform = await platformCore.getPlatform(id)
+        const platformDef = PLATFORM_DEFINITIONS.find((def) => def.name === platform.name)
         spinner.succeed(chalk.green('Platform Configuration'))
         console.log(chalk.blue(`ID: ${platform.id}`))
-        console.log(chalk.blue(`Name: ${platform.name}`))
-        console.log(chalk.blue(`Endpoint: ${platform.endpoint}`))
+        console.log(chalk.blue(`Platform: ${platformDef?.displayName || platform.name}`))
+        console.log(chalk.blue(`Type: ${platform.name}`))
         console.log(chalk.blue(`Active: ${platform.active ? 'Yes' : 'No'}`))
         console.log(chalk.blue(`Config: ${JSON.stringify(platform.config, null, 2)}`))
         console.log(chalk.blue(`Created At: ${new Date(platform.createdAt).toLocaleString('en-US')}`))
@@ -163,8 +154,7 @@ export function platformCommands(program: Command) {
   program
     .command('update <id>')
     .description('Update platform configuration')
-    .option('-n, --name <name>', 'Platform name')
-    .option('-e, --endpoint <endpoint>', 'Platform endpoint URL')
+    .option('-n, --name <name>', 'Platform type (e.g., telegram)')
     .option('-c, --config <config>', 'Platform config (JSON string)')
     .option('-a, --active <active>', 'Set active status (true/false)')
     .action(async (id, options) => {
@@ -172,7 +162,6 @@ export function platformCommands(program: Command) {
         const updates: Record<string, unknown> = {}
 
         if (options.name) updates.name = options.name
-        if (options.endpoint) updates.endpoint = options.endpoint
         if (options.config) {
           try {
             updates.config = JSON.parse(options.config)
@@ -193,8 +182,9 @@ export function platformCommands(program: Command) {
         const spinner = ora('Updating platform configuration...').start()
         const platform = await platformCore.updatePlatform(id, updates as any)
         spinner.succeed(chalk.green('Platform configuration updated successfully'))
-        console.log(chalk.blue(`Name: ${platform.name}`))
-        console.log(chalk.blue(`Endpoint: ${platform.endpoint}`))
+        const platformDef = PLATFORM_DEFINITIONS.find((def) => def.name === platform.name)
+        console.log(chalk.blue(`Platform: ${platformDef?.displayName || platform.name}`))
+        console.log(chalk.blue(`Type: ${platform.name}`))
         console.log(chalk.blue(`Active: ${platform.active ? 'Yes' : 'No'}`))
       } catch (error) {
         console.error(chalk.red(formatError(error)))
@@ -204,23 +194,62 @@ export function platformCommands(program: Command) {
 
   program
     .command('update-config <id>')
-    .description('Update platform config only')
-    .requiredOption('-c, --config <config>', 'Platform config (JSON string)')
+    .description('Update platform config interactively or via JSON')
+    .option('-c, --config <config>', 'Platform config (JSON string)')
     .action(async (id, options) => {
       try {
         let configObj: Record<string, unknown>
-        try {
-          configObj = JSON.parse(options.config)
-        } catch {
-          console.error(chalk.red('Invalid JSON config'))
-          process.exit(1)
+
+        if (options.config) {
+          // Use provided JSON config
+          try {
+            configObj = JSON.parse(options.config)
+          } catch {
+            console.error(chalk.red('Invalid JSON config'))
+            process.exit(1)
+          }
+        } else {
+          // Interactive mode - get current platform first
+          const spinner = ora('Fetching platform...').start()
+          const platform = await platformCore.getPlatform(id)
+          spinner.stop()
+
+          const platformDef = PLATFORM_DEFINITIONS.find((def) => def.name === platform.name)
+          if (!platformDef) {
+            console.error(chalk.red(`Unknown platform type: ${platform.name}`))
+            process.exit(1)
+          }
+
+          console.log(chalk.cyan(`\nUpdating config for ${platformDef.displayName}...\n`))
+
+          configObj = {}
+          for (const field of platformDef.configFields) {
+            const currentValue = (platform.config as Record<string, unknown>)[field.name]
+            const answer = await inquirer.prompt([
+              {
+                type: field.type || 'input',
+                name: field.name,
+                message: field.message,
+                default: currentValue || field.default,
+                validate: field.validate || ((value: string) => {
+                  if (field.required && !value?.toString().trim()) {
+                    return `${field.name} is required`
+                  }
+                  return true
+                }),
+              },
+            ])
+            configObj[field.name] = answer[field.name]
+          }
         }
 
         const spinner = ora('Updating platform config...').start()
         const platform = await platformCore.updatePlatformConfig(id, configObj)
         spinner.succeed(chalk.green('Platform config updated successfully'))
-        console.log(chalk.blue(`Name: ${platform.name}`))
-        console.log(chalk.blue(`Config: ${JSON.stringify(platform.config, null, 2)}`))
+        const platformDef = PLATFORM_DEFINITIONS.find((def) => def.name === platform.name)
+        console.log(chalk.blue(`\nPlatform: ${platformDef?.displayName || platform.name}`))
+        console.log(chalk.blue(`Type: ${platform.name}`))
+        console.log(chalk.dim(`Config: ${JSON.stringify(platform.config, null, 2)}`))
       } catch (error) {
         console.error(chalk.red(formatError(error)))
         process.exit(1)
@@ -263,8 +292,9 @@ export function platformCommands(program: Command) {
       try {
         const platform = await platformCore.activatePlatform(id)
         spinner.succeed(chalk.green('Platform activated successfully'))
-        console.log(chalk.blue(`Name: ${platform.name}`))
-        console.log(chalk.blue(`Endpoint: ${platform.endpoint}`))
+        const platformDef = PLATFORM_DEFINITIONS.find((def) => def.name === platform.name)
+        console.log(chalk.blue(`Platform: ${platformDef?.displayName || platform.name}`))
+        console.log(chalk.blue(`Type: ${platform.name}`))
         console.log(chalk.blue(`Active: ${platform.active ? chalk.green('Yes') : 'No'}`))
       } catch (error) {
         spinner.fail(chalk.red('Operation failed'))
@@ -281,8 +311,9 @@ export function platformCommands(program: Command) {
       try {
         const platform = await platformCore.inactivatePlatform(id)
         spinner.succeed(chalk.green('Platform deactivated successfully'))
-        console.log(chalk.blue(`Name: ${platform.name}`))
-        console.log(chalk.blue(`Endpoint: ${platform.endpoint}`))
+        const platformDef = PLATFORM_DEFINITIONS.find((def) => def.name === platform.name)
+        console.log(chalk.blue(`Platform: ${platformDef?.displayName || platform.name}`))
+        console.log(chalk.blue(`Type: ${platform.name}`))
         console.log(chalk.blue(`Active: ${platform.active ? 'Yes' : chalk.dim('No')}`))
       } catch (error) {
         spinner.fail(chalk.red('Operation failed'))

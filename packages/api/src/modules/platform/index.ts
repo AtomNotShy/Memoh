@@ -7,6 +7,7 @@ import {
   DeletePlatformModel,
   UpdatePlatformConfigModel,
   SetPlatformActiveModel,
+  getPlatformConfigSchema,
 } from './model'
 import {
   getPlatforms,
@@ -34,7 +35,6 @@ export const platformModule = new Elysia({
         await activePlatform({
           id: platform.id,
           name: platform.name,
-          endpoint: platform.endpoint,
           config: platform.config as Record<string, unknown>,
           active: platform.active,
         })
@@ -140,13 +140,21 @@ export const platformModule = new Elysia({
           try {
             const { id } = params
             const { config } = body as { config: Record<string, unknown> }
-            const updatedPlatform = await updatePlatformConfig(id, config)
-            if (!updatedPlatform) {
+            
+            // Get the platform to validate config against its schema
+            const platform = await getPlatformById(id)
+            if (!platform) {
               return {
                 success: false,
                 error: 'Platform not found',
               }
             }
+            
+            // Validate config against platform-specific schema
+            const configSchema = getPlatformConfigSchema(platform.name)
+            const validatedConfig = configSchema.parse(config) as Record<string, unknown>
+            
+            const updatedPlatform = await updatePlatformConfig(id, validatedConfig)
             return {
               success: true,
               data: updatedPlatform,

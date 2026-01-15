@@ -1,65 +1,38 @@
 import { Telegraf, type Context } from 'telegraf'
-import { BasePlatform, SendSchema } from '@memoh/platform'
+import { BasePlatform, PlatformMessage } from '@memoh/platform'
 import { handleLogin, handleLogout, handleWhoami, requireAuth } from './auth'
 import { chatStreamAsync, type StreamEvent } from '@memoh/client'
 import { getTokenStorage } from './storage'
-import z from 'zod'
 import Redis from 'ioredis'
+import { Platform } from '@memoh/shared'
 
 export interface TelegramPlatformConfig {
   botToken: string
-  redisUrl?: string
-  apiUrl?: string
 }
+
 
 export class TelegramPlatform extends BasePlatform {
   name = 'telegram'
-  description = 'Telegram Bot platform for Memoh'
-  config = z.object({
-    botToken: z.string(),
-  })
-  port = 7101
+  description = 'Telegram Bot platform'
   
   private bot?: Telegraf
   redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379')
-  // private storage?: TelegramRedisStorage
 
-  override async start(config: z.infer<typeof this.config>): Promise<void> {
-    const botToken = config.botToken as string
-    if (!botToken) {
-      throw new Error('Bot token is required')
-    }
-
-    // // Initialize storage
-    // this.storage = new TelegramRedisStorage({
-    //   redisUrl: config.redisUrl as string,
-    //   apiUrl: config.apiUrl as string,
-    // })
-
-    // Initialize bot
+  async start({ botToken }: TelegramPlatformConfig): Promise<void> {
     this.bot = new Telegraf(botToken)
 
-    // Register commands
     this.registerCommands()
 
-    // Start bot
     this.bot.launch()
-    console.log('✅ Telegram bot started successfully')
   }
 
   async stop(): Promise<void> {
     if (this.bot) {
       this.bot.stop('SIGTERM')
-      console.log('🛑 Telegram bot stopped')
     }
-    
-    // if (this.storage) {
-    //   await this.storage.close()
-    //   console.log('🛑 Redis connection closed')
-    // }
   }
 
-  async send({ userId, message }: z.infer<typeof SendSchema>): Promise<void> {
+  async send({ message, userId }: PlatformMessage): Promise<void> {
     const pattern = 'memoh:telegram:*:userId'
       let cursor = '0'
       let telegramUserId: string | null = null
@@ -74,11 +47,9 @@ export class TelegramPlatform extends BasePlatform {
         )
         cursor = nextCursor
         
-        // 检查每个 key 的值是否匹配目标 userId
         for (const key of keys) {
           const storedUserId = await this.redis.get(key)
           if (storedUserId === userId) {
-            // 从 key 中提取 telegramUserId: memoh:telegram:{telegramUserId}:userId
             const match = key.match(/^memoh:telegram:(.+):userId$/)
             if (match) {
               telegramUserId = match[1]
