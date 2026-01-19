@@ -11,9 +11,14 @@ const routes = [
     path: '/login',
     component: () => import('@/pages/login/index.vue')
   }, {
-    name: 'Chat',
-    path: '/chat',
-    component: () => import('@/pages/chat/index.vue'),
+    name: 'Main',
+    component: () => import('@/pages/mainSection/index.vue'),
+    path: '/main',
+    redirect:'/main/chat',
+    children: [{
+      path: 'chat',
+      component: () => import('@/pages/chat/index.vue')
+    }]
   }
 
 ]
@@ -28,7 +33,7 @@ router.beforeEach((to) => {
   if (to.fullPath !== '/login') {
     return token ? true : { name: 'Login' }
   } else {
-    return token ? { name: 'Chat' } : true
+    return token ? { name: 'Main' } : true
   }
 })
 

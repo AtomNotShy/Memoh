@@ -1,46 +1,38 @@
 <template>
-  <aside>
-    <SidebarProvider :open="open as boolean">
-      <Sidebar>
-        <SidebarHeader>
-          <img
-            src="../../../public/logo.png"
-            width="80"
-            class="m-auto"
-            alt="logo.png"
-          >
-          <h4 class="scroll-m-20 text-xl font-semibold tracking-tight text-center text-muted-foreground">
-            Memoh
-          </h4>
-          <!-- <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton size="lg">
-                <div
-                  class="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground"
-                >
-                  <GalleryVerticalEnd class="size-4" />
-                </div>
-                <div class="grid flex-1 text-left text-sm leading-tight">
-                  <span class="truncate font-semibold">Acme Inc</span>
-                  <span class="truncate text-xs">Enterprise</span>
-                </div>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu> -->
-        </SidebarHeader>
-        <SidebarContent>
-          <SidebarGroup>
-            <SidebarGroupLabel>
-              对话操作
-            </SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem
-                  v-for="sidebarItem in sidebarInfo"
-                  :key="sidebarItem.title"
-                >
+  <aside class="[&_[data-state=collapsed]_.title-container]:hidden">
+    <Sidebar
+      collapsible="icon"
+    >
+      <SidebarHeader>
+        <SidebarMenu>
+          <SidebarMenuItem>        
+            <img
+              src="../../../public/logo.png"
+              width="80"
+              class="m-auto"
+              alt="logo.png"
+            >
+            <h4 class="scroll-m-20 text-xl font-semibold tracking-tight text-center text-muted-foreground title-container">
+              Memoh
+            </h4>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarHeader>
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupLabel>
+            对话操作
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <Collapsible
+                v-for="sidebarItem in sidebarInfo"
+                :key="sidebarItem.title"
+                class="group/collapsible"
+              >
+                <SidebarMenuItem>
                   <CollapsibleTrigger as-child>
-                    <SidebarMenuButton>
+                    <SidebarMenuButton :tooltip="sidebarItem.title">
                       <svg-icon
                         type="mdi"
                         :path="sidebarItem.icon"
@@ -49,35 +41,35 @@
                     </SidebarMenuButton>
                   </CollapsibleTrigger>
                 </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        </SidebarContent>
-        <SidebarFooter />
-        <SidebarRail />
-      </Sidebar>
-    </SidebarProvider>
+              </Collapsible>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
+     
+      <SidebarRail />
+    </Sidebar>
   </aside>
 </template>
 <script setup lang="ts">
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarHeader,  
   SidebarMenu,
   SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarProvider,
+  SidebarMenuItem,  
   SidebarRail, 
+  CollapsibleTrigger,
+  Collapsible
   
 } from '@memoh/ui'
 import { reactive, inject } from 'vue'
 import SvgIcon from '@jamescoyle/vue-icon'
-import { mdiRobot, mdiChatOutline, mdiCogBox, mdiListBox } from '@mdi/js'
+import { mdiRobot, mdiChatOutline, mdiCogBox, mdiListBox, mdiHome } from '@mdi/js'
 
 
 const open=inject('sideBarIsOpen')
@@ -87,6 +79,11 @@ const sidebarInfo = reactive([{
   path: '/',
   icon: mdiChatOutline
 }, {
+  title: '主页',
+  path: '/',
+  icon: mdiHome
+},
+  {
   title: '模型配置',
   path: '/',
   icon: mdiRobot
@@ -95,7 +92,7 @@ const sidebarInfo = reactive([{
   path: '/',
   icon: mdiCogBox
   }, {
-  title: '调度规则',
+  title: '平台',
   path: '/',
   icon: mdiListBox
 }])
