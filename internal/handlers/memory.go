@@ -31,6 +31,13 @@ func (h *MemoryHandler) Register(e *echo.Echo) {
 	group.DELETE("/memories", h.DeleteAll)
 }
 
+func (h *MemoryHandler) checkService() error {
+	if h.service == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "memory service not available: no embedding models configured")
+	}
+	return nil
+}
+
 // EmbedUpsert godoc
 // @Summary Embed and upsert memory
 // @Description Embed text or multimodal input and upsert into memory store
@@ -41,6 +48,10 @@ func (h *MemoryHandler) Register(e *echo.Echo) {
 // @Failure 500 {object} ErrorResponse
 // @Router /memory/embed [post]
 func (h *MemoryHandler) EmbedUpsert(c echo.Context) error {
+	if err := h.checkService(); err != nil {
+		return err
+	}
+	
 	userID, err := h.requireUserID(c)
 	if err != nil {
 		return err
@@ -72,6 +83,10 @@ func (h *MemoryHandler) EmbedUpsert(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /memory/add [post]
 func (h *MemoryHandler) Add(c echo.Context) error {
+	if err := h.checkService(); err != nil {
+		return err
+	}
+	
 	userID, err := h.requireUserID(c)
 	if err != nil {
 		return err
@@ -103,6 +118,10 @@ func (h *MemoryHandler) Add(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /memory/search [post]
 func (h *MemoryHandler) Search(c echo.Context) error {
+	if err := h.checkService(); err != nil {
+		return err
+	}
+	
 	userID, err := h.requireUserID(c)
 	if err != nil {
 		return err
@@ -134,6 +153,10 @@ func (h *MemoryHandler) Search(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /memory/update [post]
 func (h *MemoryHandler) Update(c echo.Context) error {
+	if err := h.checkService(); err != nil {
+		return err
+	}
+	
 	userID, err := h.requireUserID(c)
 	if err != nil {
 		return err
@@ -170,6 +193,10 @@ func (h *MemoryHandler) Update(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /memory/memories/{memoryId} [get]
 func (h *MemoryHandler) Get(c echo.Context) error {
+	if err := h.checkService(); err != nil {
+		return err
+	}
+	
 	userID, err := h.requireUserID(c)
 	if err != nil {
 		return err
@@ -203,6 +230,10 @@ func (h *MemoryHandler) Get(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /memory/memories [get]
 func (h *MemoryHandler) GetAll(c echo.Context) error {
+	if err := h.checkService(); err != nil {
+		return err
+	}
+	
 	userID, err := h.requireUserID(c)
 	if err != nil {
 		return err
@@ -240,6 +271,10 @@ func (h *MemoryHandler) GetAll(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /memory/memories/{memoryId} [delete]
 func (h *MemoryHandler) Delete(c echo.Context) error {
+	if err := h.checkService(); err != nil {
+		return err
+	}
+	
 	userID, err := h.requireUserID(c)
 	if err != nil {
 		return err
@@ -275,6 +310,10 @@ func (h *MemoryHandler) Delete(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /memory/memories [delete]
 func (h *MemoryHandler) DeleteAll(c echo.Context) error {
+	if err := h.checkService(); err != nil {
+		return err
+	}
+	
 	userID, err := h.requireUserID(c)
 	if err != nil {
 		return err

@@ -60,6 +60,7 @@ type Model struct {
 	Dimensions    pgtype.Int4        `json:"dimensions"`
 	IsMultimodal  bool               `json:"is_multimodal"`
 	Type          string             `json:"type"`
+	EnableAs      pgtype.Text        `json:"enable_as"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 }

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -42,10 +41,10 @@ func (e *resolverTextEmbedder) Dimensions() int {
 	return e.dims
 }
 
-func collectEmbeddingVectors(ctx context.Context, service *models.Service) (map[string]int, models.GetResponse, models.GetResponse, error) {
+func collectEmbeddingVectors(ctx context.Context, service *models.Service) (map[string]int, models.GetResponse, models.GetResponse, bool, error) {
 	candidates, err := service.ListByType(ctx, models.ModelTypeEmbedding)
 	if err != nil {
-		return nil, models.GetResponse{}, models.GetResponse{}, err
+		return nil, models.GetResponse{}, models.GetResponse{}, false, err
 	}
 	vectors := map[string]int{}
 	var textModel models.GetResponse
@@ -64,13 +63,12 @@ func collectEmbeddingVectors(ctx context.Context, service *models.Service) (map[
 			textModel = model
 		}
 	}
-	if textModel.ModelID == "" {
-		return vectors, textModel, multimodalModel, fmt.Errorf("no text embedding model configured")
-	}
-	if multimodalModel.ModelID == "" {
-		return vectors, textModel, multimodalModel, fmt.Errorf("no multimodal embedding model configured")
-	}
-	return vectors, textModel, multimodalModel, nil
+	
+	hasTextModel := textModel.ModelID != ""
+	hasMultimodalModel := multimodalModel.ModelID != ""
+	hasAnyModel := hasTextModel || hasMultimodalModel
+	
+	return vectors, textModel, multimodalModel, hasAnyModel, nil
 }
 
 func main() {
@@ -122,44 +120,64 @@ func main() {
 		time.Duration(cfg.Memory.TimeoutSeconds)*time.Second,
 	)
 	resolver := embeddings.NewResolver(modelsService, queries, 10*time.Second)
-	vectors, textModel, multimodalModel, err := collectEmbeddingVectors(ctx, modelsService)
+	vectors, textModel, multimodalModel, hasModels, err := collectEmbeddingVectors(ctx, modelsService)
 	if err != nil {
 		log.Fatalf("embedding models: %v", err)
 	}
-	if textModel.Dimensions <= 0 {
-		log.Fatalf("text embedding dimensions not configured")
-	}
-	textEmbedder := &resolverTextEmbedder{
-		resolver: resolver,
-		modelID:  textModel.ModelID,
-		dims:     textModel.Dimensions,
-	}
-	var store *memory.QdrantStore
-	if len(vectors) > 0 {
-		store, err = memory.NewQdrantStoreWithVectors(
-			cfg.Qdrant.BaseURL,
-			cfg.Qdrant.APIKey,
-			cfg.Qdrant.Collection,
-			vectors,
-			time.Duration(cfg.Qdrant.TimeoutSeconds)*time.Second,
-		)
-		if err != nil {
-			log.Fatalf("qdrant named vectors init: %v", err)
-		}
+	
+	var memoryService *memory.Service
+	var memoryHandler *handlers.MemoryHandler
+	
+	if !hasModels {
+		log.Println("WARNING: No embedding models configured. Memory service will not be available.")
+		log.Println("You can add embedding models via the /models API endpoint.")
+		memoryHandler = handlers.NewMemoryHandler(nil)
 	} else {
-		store, err = memory.NewQdrantStore(
-			cfg.Qdrant.BaseURL,
-			cfg.Qdrant.APIKey,
-			cfg.Qdrant.Collection,
-			textModel.Dimensions,
-			time.Duration(cfg.Qdrant.TimeoutSeconds)*time.Second,
-		)
-		if err != nil {
-			log.Fatalf("qdrant init: %v", err)
+		if textModel.ModelID == "" {
+			log.Println("WARNING: No text embedding model configured. Text embedding features will be limited.")
 		}
+		if multimodalModel.ModelID == "" {
+			log.Println("WARNING: No multimodal embedding model configured. Multimodal embedding features will be limited.")
+		}
+		
+		var textEmbedder embeddings.Embedder
+		var store *memory.QdrantStore
+		
+		if textModel.ModelID != "" && textModel.Dimensions > 0 {
+			textEmbedder = &resolverTextEmbedder{
+				resolver: resolver,
+				modelID:  textModel.ModelID,
+				dims:     textModel.Dimensions,
+			}
+			
+			if len(vectors) > 0 {
+				store, err = memory.NewQdrantStoreWithVectors(
+					cfg.Qdrant.BaseURL,
+					cfg.Qdrant.APIKey,
+					cfg.Qdrant.Collection,
+					vectors,
+					time.Duration(cfg.Qdrant.TimeoutSeconds)*time.Second,
+				)
+				if err != nil {
+					log.Fatalf("qdrant named vectors init: %v", err)
+				}
+			} else {
+				store, err = memory.NewQdrantStore(
+					cfg.Qdrant.BaseURL,
+					cfg.Qdrant.APIKey,
+					cfg.Qdrant.Collection,
+					textModel.Dimensions,
+					time.Duration(cfg.Qdrant.TimeoutSeconds)*time.Second,
+				)
+				if err != nil {
+					log.Fatalf("qdrant init: %v", err)
+				}
+			}
+		}
+		
+		memoryService = memory.NewService(llmClient, textEmbedder, store, resolver, textModel.ModelID, multimodalModel.ModelID)
+		memoryHandler = handlers.NewMemoryHandler(memoryService)
 	}
-	memoryService := memory.NewService(llmClient, textEmbedder, store, resolver, textModel.ModelID, multimodalModel.ModelID)
-	memoryHandler := handlers.NewMemoryHandler(memoryService)
 	embeddingsHandler := handlers.NewEmbeddingsHandler(modelsService, queries)
 	fsHandler := handlers.NewFSHandler(service, manager, cfg.MCP, cfg.Containerd.Namespace)
 	swaggerHandler := handlers.NewSwaggerHandler()

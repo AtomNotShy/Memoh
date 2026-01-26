@@ -305,6 +305,8 @@ definitions:
     properties:
       dimensions:
         type: integer
+      enable_as:
+        $ref: '#/definitions/models.EnableAs'
       is_multimodal:
         type: boolean
       llm_provider_id:
@@ -328,10 +330,22 @@ definitions:
       count:
         type: integer
     type: object
+  models.EnableAs:
+    enum:
+    - chat
+    - memory
+    - embedding
+    type: string
+    x-enum-varnames:
+    - EnableAsChat
+    - EnableAsMemory
+    - EnableAsEmbedding
   models.GetResponse:
     properties:
       dimensions:
         type: integer
+      enable_as:
+        $ref: '#/definitions/models.EnableAs'
       is_multimodal:
         type: boolean
       llm_provider_id:
@@ -355,6 +369,8 @@ definitions:
     properties:
       dimensions:
         type: integer
+      enable_as:
+        $ref: '#/definitions/models.EnableAs'
       is_multimodal:
         type: boolean
       llm_provider_id:
@@ -982,6 +998,36 @@ paths:
           schema:
             $ref: '#/definitions/handlers.ErrorResponse'
       summary: Get model count
+      tags:
+      - models
+  /models/enable-as/{enableAs}:
+    get:
+      description: Get the model that is enabled for a specific purpose (chat, memory,
+        embedding)
+      parameters:
+      - description: Enable as value (chat, memory, embedding)
+        in: path
+        name: enableAs
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.GetResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Get model by enable_as
       tags:
       - models
   /models/model/{modelId}:

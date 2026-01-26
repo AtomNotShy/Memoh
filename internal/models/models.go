@@ -28,6 +28,13 @@ func (s *Service) Create(ctx context.Context, req AddRequest) (AddResponse, erro
 		return AddResponse{}, fmt.Errorf("validation failed: %w", err)
 	}
 
+	// If enable_as is set, clear any existing model with the same enable_as
+	if model.EnableAs != nil {
+		if err := s.queries.ClearEnableAs(ctx, pgtype.Text{String: string(*model.EnableAs), Valid: true}); err != nil {
+			return AddResponse{}, fmt.Errorf("failed to clear existing enable_as: %w", err)
+		}
+	}
+
 	// Convert to sqlc params
 	llmProviderID, err := parseUUID(model.LlmProviderID)
 	if err != nil {
@@ -49,6 +56,11 @@ func (s *Service) Create(ctx context.Context, req AddRequest) (AddResponse, erro
 	// Handle optional dimensions field (only for embedding models)
 	if model.Type == ModelTypeEmbedding && model.Dimensions > 0 {
 		params.Dimensions = pgtype.Int4{Int32: int32(model.Dimensions), Valid: true}
+	}
+
+	// Handle optional enable_as field
+	if model.EnableAs != nil {
+		params.EnableAs = pgtype.Text{String: string(*model.EnableAs), Valid: true}
 	}
 
 	created, err := s.queries.CreateModel(ctx, params)
@@ -151,6 +163,13 @@ func (s *Service) UpdateByID(ctx context.Context, id string, req UpdateRequest) 
 		return GetResponse{}, fmt.Errorf("validation failed: %w", err)
 	}
 
+	// If enable_as is being set, clear any existing model with the same enable_as
+	if model.EnableAs != nil {
+		if err := s.queries.ClearEnableAs(ctx, pgtype.Text{String: string(*model.EnableAs), Valid: true}); err != nil {
+			return GetResponse{}, fmt.Errorf("failed to clear existing enable_as: %w", err)
+		}
+	}
+
 	params := sqlc.UpdateModelParams{
 		ID:           uuid,
 		IsMultimodal: model.IsMultimodal,
@@ -169,6 +188,11 @@ func (s *Service) UpdateByID(ctx context.Context, id string, req UpdateRequest) 
 
 	if model.Type == ModelTypeEmbedding && model.Dimensions > 0 {
 		params.Dimensions = pgtype.Int4{Int32: int32(model.Dimensions), Valid: true}
+	}
+
+	// Handle optional enable_as field
+	if model.EnableAs != nil {
+		params.EnableAs = pgtype.Text{String: string(*model.EnableAs), Valid: true}
 	}
 
 	updated, err := s.queries.UpdateModel(ctx, params)
@@ -190,10 +214,17 @@ func (s *Service) UpdateByModelID(ctx context.Context, modelID string, req Updat
 		return GetResponse{}, fmt.Errorf("validation failed: %w", err)
 	}
 
+	// If enable_as is being set, clear any existing model with the same enable_as
+	if model.EnableAs != nil {
+		if err := s.queries.ClearEnableAs(ctx, pgtype.Text{String: string(*model.EnableAs), Valid: true}); err != nil {
+			return GetResponse{}, fmt.Errorf("failed to clear existing enable_as: %w", err)
+		}
+	}
+
 	params := sqlc.UpdateModelByModelIDParams{
-		ModelID:       modelID,
-		IsMultimodal:  model.IsMultimodal,
-		Type:          string(model.Type),
+		ModelID:      modelID,
+		IsMultimodal: model.IsMultimodal,
+		Type:         string(model.Type),
 	}
 
 	llmProviderID, err := parseUUID(model.LlmProviderID)
@@ -208,6 +239,11 @@ func (s *Service) UpdateByModelID(ctx context.Context, modelID string, req Updat
 
 	if model.Type == ModelTypeEmbedding && model.Dimensions > 0 {
 		params.Dimensions = pgtype.Int4{Int32: int32(model.Dimensions), Valid: true}
+	}
+
+	// Handle optional enable_as field
+	if model.EnableAs != nil {
+		params.EnableAs = pgtype.Text{String: string(*model.EnableAs), Valid: true}
 	}
 
 	updated, err := s.queries.UpdateModelByModelID(ctx, params)
@@ -267,6 +303,20 @@ func (s *Service) CountByType(ctx context.Context, modelType ModelType) (int64, 
 	return count, nil
 }
 
+// GetByEnableAs retrieves the model that has the specified enable_as value
+func (s *Service) GetByEnableAs(ctx context.Context, enableAs EnableAs) (GetResponse, error) {
+	if enableAs != EnableAsChat && enableAs != EnableAsMemory && enableAs != EnableAsEmbedding {
+		return GetResponse{}, fmt.Errorf("invalid enable_as value: %s", enableAs)
+	}
+
+	dbModel, err := s.queries.GetModelByEnableAs(ctx, pgtype.Text{String: string(enableAs), Valid: true})
+	if err != nil {
+		return GetResponse{}, fmt.Errorf("failed to get model by enable_as: %w", err)
+	}
+
+	return convertToGetResponse(dbModel), nil
+}
+
 // Helper functions
 
 func parseUUID(id string) (pgtype.UUID, error) {
@@ -302,6 +352,11 @@ func convertToGetResponse(dbModel sqlc.Model) GetResponse {
 
 	if dbModel.Dimensions.Valid {
 		resp.Model.Dimensions = int(dbModel.Dimensions.Int32)
+	}
+
+	if dbModel.EnableAs.Valid {
+		enableAs := EnableAs(dbModel.EnableAs.String)
+		resp.Model.EnableAs = &enableAs
 	}
 
 	return resp

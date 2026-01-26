@@ -13,6 +13,14 @@ const (
 	ModelTypeEmbedding ModelType = "embedding"
 )
 
+type EnableAs string
+
+const (
+	EnableAsChat      EnableAs = "chat"
+	EnableAsMemory    EnableAs = "memory"
+	EnableAsEmbedding EnableAs = "embedding"
+)
+
 type ClientType string
 
 const (
@@ -33,6 +41,7 @@ type Model struct {
 	IsMultimodal  bool      `json:"is_multimodal"`
 	Type          ModelType `json:"type"`
 	Dimensions    int       `json:"dimensions"`
+	EnableAs      *EnableAs `json:"enable_as,omitempty"`
 }
 
 func (m *Model) Validate() error {
@@ -51,6 +60,21 @@ func (m *Model) Validate() error {
 	if m.Type == ModelTypeEmbedding && m.Dimensions <= 0 {
 		return errors.New("dimensions must be greater than 0")
 	}
+	
+	// Validate enable_as based on type
+	if m.EnableAs != nil {
+		switch m.Type {
+		case ModelTypeEmbedding:
+			if *m.EnableAs != EnableAsEmbedding {
+				return errors.New("embedding models can only have enable_as set to 'embedding'")
+			}
+		case ModelTypeChat:
+			if *m.EnableAs != EnableAsChat && *m.EnableAs != EnableAsMemory {
+				return errors.New("chat models can only have enable_as set to 'chat' or 'memory'")
+			}
+		}
+	}
+	
 	return nil
 }
 

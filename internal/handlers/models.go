@@ -22,6 +22,7 @@ func (h *ModelsHandler) Register(e *echo.Echo) {
 	group.GET("", h.List)
 	group.GET("/:id", h.GetByID)
 	group.GET("/model/:modelId", h.GetByModelID)
+	group.GET("/enable-as/:enableAs", h.GetByEnableAs)
 	group.PUT("/:id", h.UpdateByID)
 	group.PUT("/model/:modelId", h.UpdateByModelID)
 	group.DELETE("/:id", h.DeleteByID)
@@ -228,6 +229,38 @@ func (h *ModelsHandler) DeleteByModelID(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	return c.NoContent(http.StatusNoContent)
+}
+
+// GetByEnableAs godoc
+// @Summary Get model by enable_as
+// @Description Get the model that is enabled for a specific purpose (chat, memory, embedding)
+// @Tags models
+// @Param enableAs path string true "Enable as value (chat, memory, embedding)"
+// @Success 200 {object} models.GetResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /models/enable-as/{enableAs} [get]
+// GetByEnableAs godoc
+// @Summary Get default model by enable_as
+// @Description Get the default model configured for a specific purpose (chat, memory, or embedding)
+// @Tags models
+// @Param enableAs path string true "Enable as value (chat, memory, embedding)"
+// @Success 200 {object} models.GetResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
+// @Router /models/enable-as/{enableAs} [get]
+func (h *ModelsHandler) GetByEnableAs(c echo.Context) error {
+	enableAs := c.Param("enableAs")
+	if enableAs == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "enableAs is required")
+	}
+
+	resp, err := h.service.GetByEnableAs(c.Request().Context(), models.EnableAs(enableAs))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, err.Error())
+	}
+	return c.JSON(http.StatusOK, resp)
 }
 
 // Count godoc

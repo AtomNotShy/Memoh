@@ -818,6 +818,50 @@ const docTemplate = `{
                 }
             }
         },
+        "/models/enable-as/{enableAs}": {
+            "get": {
+                "description": "Get the model that is enabled for a specific purpose (chat, memory, embedding)",
+                "tags": [
+                    "models"
+                ],
+                "summary": "Get model by enable_as",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Enable as value (chat, memory, embedding)",
+                        "name": "enableAs",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.GetResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/models/model/{modelId}": {
             "get": {
                 "description": "Get a model configuration by its model_id field (e.g., gpt-4)",
@@ -1556,6 +1600,9 @@ const docTemplate = `{
                 "dimensions": {
                     "type": "integer"
                 },
+                "enable_as": {
+                    "$ref": "#/definitions/models.EnableAs"
+                },
                 "is_multimodal": {
                     "type": "boolean"
                 },
@@ -1592,11 +1639,27 @@ const docTemplate = `{
                 }
             }
         },
+        "models.EnableAs": {
+            "type": "string",
+            "enum": [
+                "chat",
+                "memory",
+                "embedding"
+            ],
+            "x-enum-varnames": [
+                "EnableAsChat",
+                "EnableAsMemory",
+                "EnableAsEmbedding"
+            ]
+        },
         "models.GetResponse": {
             "type": "object",
             "properties": {
                 "dimensions": {
                     "type": "integer"
+                },
+                "enable_as": {
+                    "$ref": "#/definitions/models.EnableAs"
                 },
                 "is_multimodal": {
                     "type": "boolean"
@@ -1631,6 +1694,9 @@ const docTemplate = `{
             "properties": {
                 "dimensions": {
                     "type": "integer"
+                },
+                "enable_as": {
+                    "$ref": "#/definitions/models.EnableAs"
                 },
                 "is_multimodal": {
                     "type": "boolean"

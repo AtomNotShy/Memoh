@@ -173,6 +173,23 @@ func (r *Resolver) selectEmbeddingModel(ctx context.Context, req Request) (model
 		return models.GetResponse{}, errors.New("models service not configured")
 	}
 
+	// If no model specified and no provider specified, try to get default embedding model
+	if req.Model == "" && req.Provider == "" {
+		defaultModel, err := r.modelsService.GetByEnableAs(ctx, models.EnableAsEmbedding)
+		if err == nil {
+			// Found default model, check if it matches the type requirement
+			if req.Type == TypeMultimodal && !defaultModel.IsMultimodal {
+				// Default is text, but need multimodal - continue to search
+			} else if req.Type == TypeText && defaultModel.IsMultimodal {
+				// Default is multimodal, but need text - continue to search
+			} else {
+				// Default model matches requirements
+				return defaultModel, nil
+			}
+		}
+		// No default model or doesn't match requirements, continue to search
+	}
+
 	var candidates []models.GetResponse
 	var err error
 	if req.Provider != "" {
