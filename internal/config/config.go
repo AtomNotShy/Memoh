@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/BurntSushi/toml"
@@ -31,6 +32,7 @@ type Config struct {
 	MCP        MCPConfig        `toml:"mcp"`
 	Postgres   PostgresConfig   `toml:"postgres"`
 	Qdrant     QdrantConfig     `toml:"qdrant"`
+	AgentGateway AgentGatewayConfig `toml:"agent_gateway"`
 }
 
 type ServerConfig struct {
@@ -70,6 +72,23 @@ type QdrantConfig struct {
 	TimeoutSeconds int    `toml:"timeout_seconds"`
 }
 
+type AgentGatewayConfig struct {
+	Host string `toml:"host"`
+	Port int    `toml:"port"`
+}
+
+func (c AgentGatewayConfig) BaseURL() string {
+	host := c.Host
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	port := c.Port
+	if port == 0 {
+		port = 8081
+	}
+	return "http://" + host + ":" + fmt.Sprint(port)
+}
+
 func Load(path string) (Config, error) {
 	cfg := Config{
 		Server: ServerConfig{
@@ -97,6 +116,10 @@ func Load(path string) (Config, error) {
 		Qdrant: QdrantConfig{
 			BaseURL:    DefaultQdrantURL,
 			Collection: DefaultQdrantCollection,
+		},
+		AgentGateway: AgentGatewayConfig{
+			Host: "127.0.0.1",
+			Port: 8081,
 		},
 	}
 

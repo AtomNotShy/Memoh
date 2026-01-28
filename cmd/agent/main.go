@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -71,21 +72,14 @@ func main() {
 	authHandler := handlers.NewAuthHandler(conn, cfg.Auth.JWTSecret, jwtExpiresIn)
 
 	// Initialize chat resolver for both chat and memory operations
-	chatResolver := chat.NewResolver(modelsService, queries, 30*time.Second)
+	chatResolver := chat.NewResolver(modelsService, queries, cfg.AgentGateway.BaseURL(), 30*time.Second)
 
-	// Create LLM client for memory operations using chat provider
-	var llmClient memory.LLM
-	memoryModel, memoryProvider, err := models.SelectMemoryModel(ctx, modelsService, queries)
-	if err != nil {
-		log.Fatalf("select memory model: %v\nPlease configure at least one chat model in the database.", err)
+	// Create LLM client for memory operations (deferred model/provider selection).
+	var llmClient memory.LLM = &lazyLLMClient{
+		modelsService: modelsService,
+		queries:       queries,
+		timeout:       30 * time.Second,
 	}
-
-	log.Printf("Using memory model: %s (provider: %s)", memoryModel.ModelID, memoryProvider.ClientType)
-	provider, err := chat.CreateProvider(memoryProvider, 30*time.Second)
-	if err != nil {
-		log.Fatalf("create memory provider: %v", err)
-	}
-	llmClient = memory.NewProviderLLMClient(provider, memoryModel.ModelID)
 
 	resolver := embeddings.NewResolver(modelsService, queries, 10*time.Second)
 	vectors, textModel, multimodalModel, hasModels, err := embeddings.CollectEmbeddingVectors(ctx, modelsService)
@@ -154,9 +148,46 @@ func main() {
 	providersService := providers.NewService(queries)
 	providersHandler := handlers.NewProvidersHandler(providersService)
 	modelsHandler := handlers.NewModelsHandler(modelsService)
-	srv := server.NewServer(addr, cfg.Auth.JWTSecret, pingHandler, authHandler, memoryHandler, embeddingsHandler, swaggerHandler, chatHandler, providersHandler, modelsHandler, containerdHandler)
+	srv := server.NewServer(addr, cfg.Auth.JWTSecret, pingHandler, authHandler, memoryHandler, embeddingsHandler, chatHandler, swaggerHandler, providersHandler, modelsHandler, containerdHandler)
 
 	if err := srv.Start(); err != nil {
 		log.Fatalf("server failed: %v", err)
 	}
+}
+
+type lazyLLMClient struct {
+	modelsService *models.Service
+	queries       *dbsqlc.Queries
+	timeout       time.Duration
+}
+
+func (c *lazyLLMClient) Extract(ctx context.Context, req memory.ExtractRequest) (memory.ExtractResponse, error) {
+	client, err := c.resolve(ctx)
+	if err != nil {
+		return memory.ExtractResponse{}, err
+	}
+	return client.Extract(ctx, req)
+}
+
+func (c *lazyLLMClient) Decide(ctx context.Context, req memory.DecideRequest) (memory.DecideResponse, error) {
+	client, err := c.resolve(ctx)
+	if err != nil {
+		return memory.DecideResponse{}, err
+	}
+	return client.Decide(ctx, req)
+}
+
+func (c *lazyLLMClient) resolve(ctx context.Context) (memory.LLM, error) {
+	if c.modelsService == nil || c.queries == nil {
+		return nil, fmt.Errorf("models service not configured")
+	}
+	memoryModel, memoryProvider, err := models.SelectMemoryModel(ctx, c.modelsService, c.queries)
+	if err != nil {
+		return nil, err
+	}
+	clientType := strings.ToLower(strings.TrimSpace(memoryProvider.ClientType))
+	if clientType != "openai" && clientType != "openai-compat" {
+		return nil, fmt.Errorf("memory provider client type not supported: %s", memoryProvider.ClientType)
+	}
+	return memory.NewLLMClient(memoryProvider.BaseUrl, memoryProvider.ApiKey, memoryModel.ModelID, c.timeout), nil
 }

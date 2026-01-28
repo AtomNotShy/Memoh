@@ -124,7 +124,11 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/chat.StreamChunk"
+                            "type": "array",
+                            "items": {
+                                "type": "integer",
+                                "format": "int32"
+                            }
                         }
                     },
                     "400": {
@@ -1420,71 +1424,53 @@
         "chat.ChatRequest": {
             "type": "object",
             "properties": {
+                "current_platform": {
+                    "type": "string"
+                },
+                "language": {
+                    "type": "string"
+                },
+                "locale": {
+                    "type": "string"
+                },
+                "max_context_load_time": {
+                    "type": "integer"
+                },
+                "max_steps": {
+                    "type": "integer"
+                },
                 "messages": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/chat.Message"
+                        "$ref": "#/definitions/chat.GatewayMessage"
                     }
                 },
                 "model": {
-                    "description": "optional: specific model to use",
                     "type": "string"
+                },
+                "platforms": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "provider": {
-                    "description": "optional: specific provider to use",
                     "type": "string"
                 },
-                "stream": {
-                    "type": "boolean"
+                "query": {
+                    "type": "string"
                 }
             }
         },
         "chat.ChatResponse": {
             "type": "object",
             "properties": {
-                "finish_reason": {
-                    "type": "string"
-                },
-                "message": {
-                    "$ref": "#/definitions/chat.Message"
-                },
-                "model": {
-                    "type": "string"
-                },
-                "provider": {
-                    "type": "string"
-                },
-                "usage": {
-                    "$ref": "#/definitions/chat.Usage"
-                }
-            }
-        },
-        "chat.Message": {
-            "type": "object",
-            "properties": {
-                "content": {
-                    "type": "string"
-                },
-                "role": {
-                    "description": "user, assistant, system",
-                    "type": "string"
-                }
-            }
-        },
-        "chat.StreamChunk": {
-            "type": "object",
-            "properties": {
-                "delta": {
-                    "type": "object",
-                    "properties": {
-                        "content": {
-                            "type": "string"
-                        }
+                "messages": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/chat.GatewayMessage"
                     }
                 },
-                "finish_reason": {
-                    "type": "string"
-                },
                 "model": {
                     "type": "string"
                 },
@@ -1493,24 +1479,17 @@
                 }
             }
         },
-        "chat.Usage": {
+        "chat.GatewayMessage": {
             "type": "object",
-            "properties": {
-                "completion_tokens": {
-                    "type": "integer"
-                },
-                "prompt_tokens": {
-                    "type": "integer"
-                },
-                "total_tokens": {
-                    "type": "integer"
-                }
-            }
+            "additionalProperties": true
         },
         "handlers.CreateContainerRequest": {
             "type": "object",
             "properties": {
                 "container_id": {
+                    "type": "string"
+                },
+                "image": {
                     "type": "string"
                 },
                 "snapshotter": {

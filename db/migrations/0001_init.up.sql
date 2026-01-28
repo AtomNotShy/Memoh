@@ -130,3 +130,13 @@ CREATE TABLE IF NOT EXISTS lifecycle_events (
 
 CREATE INDEX IF NOT EXISTS idx_lifecycle_events_container_id ON lifecycle_events(container_id);
 CREATE INDEX IF NOT EXISTS idx_lifecycle_events_event_type ON lifecycle_events(event_type);
+
+CREATE TABLE IF NOT EXISTS history (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  messages JSONB NOT NULL,
+  timestamp TIMESTAMPTZ NOT NULL,
+  "user" UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_history_user ON history("user");
+CREATE INDEX IF NOT EXISTS idx_history_timestamp ON history(timestamp);

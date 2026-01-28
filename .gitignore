@@ -96,3 +96,5 @@ dump.rdb
 memory.db
 
 config.toml
+
+.workdocs/

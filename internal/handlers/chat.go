@@ -7,7 +7,10 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v4"
+
+	"github.com/memohai/memoh/internal/auth"
 	"github.com/memohai/memoh/internal/chat"
+	"github.com/memohai/memoh/internal/identity"
 )
 
 type ChatHandler struct {
@@ -36,14 +39,20 @@ func (h *ChatHandler) Register(e *echo.Echo) {
 // @Failure 500 {object} ErrorResponse
 // @Router /chat [post]
 func (h *ChatHandler) Chat(c echo.Context) error {
+	userID, err := h.requireUserID(c)
+	if err != nil {
+		return err
+	}
+
 	var req chat.ChatRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	if len(req.Messages) == 0 {
-		return echo.NewHTTPError(http.StatusBadRequest, "messages are required")
+	if req.Query == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "query is required")
 	}
+	req.UserID = userID
 
 	resp, err := h.resolver.Chat(c.Request().Context(), req)
 	if err != nil {
@@ -65,14 +74,20 @@ func (h *ChatHandler) Chat(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /chat/stream [post]
 func (h *ChatHandler) StreamChat(c echo.Context) error {
+	userID, err := h.requireUserID(c)
+	if err != nil {
+		return err
+	}
+
 	var req chat.ChatRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	if len(req.Messages) == 0 {
-		return echo.NewHTTPError(http.StatusBadRequest, "messages are required")
+	if req.Query == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "query is required")
 	}
+	req.UserID = userID
 
 	// Set headers for SSE
 	c.Response().Header().Set(echo.HeaderContentType, "text/event-stream")
@@ -126,4 +141,15 @@ func (h *ChatHandler) StreamChat(c echo.Context) error {
 			}
 		}
 	}
+}
+
+func (h *ChatHandler) requireUserID(c echo.Context) (string, error) {
+	userID, err := auth.UserIDFromContext(c)
+	if err != nil {
+		return "", err
+	}
+	if err := identity.ValidateUserID(userID); err != nil {
+		return "", echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	return userID, nil
 }

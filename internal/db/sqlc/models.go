@@ -33,6 +33,13 @@ type ContainerVersion struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
+type History struct {
+	ID        pgtype.UUID        `json:"id"`
+	Messages  []byte             `json:"messages"`
+	Timestamp pgtype.Timestamptz `json:"timestamp"`
+	User      pgtype.UUID        `json:"user"`
+}
+
 type LifecycleEvent struct {
 	ID          string             `json:"id"`
 	ContainerID string             `json:"container_id"`
