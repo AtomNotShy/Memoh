@@ -29,6 +29,7 @@ description = "Start development environment"
 depends = [
   "//agent:dev",
   "//cmd/agent:start",
+  "//packages/web:dev",
 ]
 
 [tasks.setup]
