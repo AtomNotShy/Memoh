@@ -1,177 +1,186 @@
 <template>
   <section>
     <section class="max-w-187 m-auto">
-      <Card>
-        <form @submit="changeSetting">
-          <CardHeader>
-            <CardTitle class="text-2xl font-semibold tracking-tight">
-              Settings
-            </CardTitle>
-            <CardDescription>
-              Model Settings
-            </CardDescription>
-          </CardHeader>
-          <CardContent class="mt-4">
-            <FormField
-              v-slot="{ componentField }"
-              name="defaultChatModel"
-            >
-              <FormItem>
-                <FormLabel class="mb-2">
-                  Chat Model
-                </FormLabel>
-                <FormControl>
-                  <Select v-bind="componentField">
-                    <SelectTrigger class="w-full">
-                      <SelectValue :placeholder="$t('prompt.select',{msg:'Client Type'})" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        <SelectItem
-                          v-for="(modelItem, index) in modelType.chat"
-                          :key="modelItem.id"
-                          :value="(modelItem.model.apiKey + index)"
-                        >
-                          {{ modelItem.model.name }}
-                        </SelectItem>
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </FormControl>
-                <blockquote class="h-5">
-                  <FormMessage />
-                </blockquote>
-              </FormItem>
-            </FormField>
-            <FormField
-              v-slot="{ componentField }"
-              name="defaultEmbeddingModel"
-            >
-              <FormItem>
-                <FormLabel class="mb-2">
-                  Embedding Model
-                </FormLabel>
-                <FormControl>
-                  <Select v-bind="componentField">
-                    <SelectTrigger class="w-full">
-                      <SelectValue :placeholder="$t('prompt.select',{msg:'Embedding Type'})" />
-                    </SelectTrigger>
-                    <SelectContent v-if="modelType.embedding.length > 0">
-                      <SelectGroup>
-                        <SelectItem
-                          v-for="(modelItem, index) in modelType.embedding"
-                          :key="modelItem.id"
-                          :value="(modelItem.model.apiKey + index)"
-                        >
-                          {{ modelItem.model.name }}
-                        </SelectItem>
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
+      <form
+        
+        @submit="changeSetting"
+      >
+        <section>
+          <section class="flex flex-col">
+            <h6 class=" mt-2 mb-2 align-middle">
+              <svg-icon
+                type="mdi"
+                :path="mdiRobotOutline"
+                class="inline mr-2 align-[-5px]"
+              />模型设置
+            </h6>
 
-                  <blockquote class="h-5">
-                    <FormMessage />
-                  </blockquote>
-                </formcontrol>
-              </FormItem>
-            </FormField>
+            <Separator />
+          </section>
 
+          <section class="flex flex-col [&_:has(label)]:py-2">
             <FormField
               v-slot="{ componentField }"
-              name="defaultSummaryModel"
+              name="chat_model_id"
             >
               <FormItem>
-                <FormLabel class="mb-2">
-                  <!-- defaultSummaryModel -->
-                  Summary Model
-                </FormLabel>
+                <Label class="mb-2">
+                  Chat Model ID
+                </Label>
                 <FormControl>
-                  <Select v-bind="componentField">
-                    <SelectTrigger class="w-full">
-                      <SelectValue :placeholder="$t('prompt.select', { msg: 'Summary Type' })" />
-                    </SelectTrigger>
-                    <SelectContent v-if="modelType.embedding.length > 0">
-                      <SelectGroup>
-                        <SelectItem
-                          v-for="(modelItem, index) in modelType.summary"
-                          :key="modelItem.id"
-                          :value="(modelItem.model.apiKey + index)"
-                        >
-                          {{ modelItem.model.name }}
-                        </SelectItem>
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
+                  <Input v-bind="componentField" />
                 </FormControl>
-                <blockquote class="h-5">
-                  <FormMessage />
-                </blockquote>
               </FormItem>
             </FormField>
+           
+            <FormField
+              v-slot="{ componentField }"
+              name="embedding_model_id"
+            >
+              <FormItem>
+                <Label class="mb-2">
+                  Embedding Model ID
+                </Label>
+                <FormControl>
+                  <Input v-bind="componentField" />
+                </FormControl>
+              </FormItem>
+            </FormField>
+           
+            <FormField
+              v-slot="{ componentField }"
+              name="memory_model_id"
+            >
+              <FormItem>
+                <Label class="mb-2">
+                  Memory Model ID
+                </Label>
+                <FormControl>
+                  <Input v-bind="componentField" />
+                </FormControl>
+              </FormItem>
+            </FormField>
+            
+            <FormField
+              v-slot="{ componentField }"
+              name="max_context_load_time"
+            >
+              <FormItem class="**:[input]:max-w-40!">
+                <Label class="mb-2">             
+                  Timeout
+                </Label>
+                <FormControl>
+                  <Input v-bind="componentField" />
+                </FormControl>
+              </FormItem>
+            </FormField>
+          </section>  
+        </section>
+        <section class="mt-4">
+          <section class="flex flex-col">
+            <h6 class=" mt-2 mb-2 align-middle">
+              <svg-icon
+                type="mdi"
+                :path="mdiCog"
+                class="inline mr-2 align-[-5px]"
+              />显示设置
+            </h6>
+
+            <Separator />
+          </section>
+          <section class="flex flex-col [&_:has(label)]:py-2">
             <FormField
               v-slot="{ componentField }"
               name="language"
             >
-              <FormItem>
-                <FormLabel class="mb-2">
-                  Language
-                </FormLabel>
+              <FormItem class="**:[button]:min-w-40! flex justify-between items-ceneter">
+                <Label class="mb-2">
+                  语言
+                </Label>
                 <FormControl>
                   <Select v-bind="componentField">
-                    <SelectTrigger class="w-full">
-                      <SelectValue                    
-                        :placeholder="$t('prompt.select', { msg: 'Language' })"
-                      />
+                    <SelectTrigger>
+                      <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
-                        <SelectItem value="ch">
+                        <SelectItem
+                          value="zh"
+                          @click="$i18n.locale = 'zh'"
+                        >
                           中文
                         </SelectItem>
-                        <SelectItem value="en">
+                        <SelectItem
+                          value="en"
+                          @click="$i18n.locale = 'en'"
+                        >
                           English
                         </SelectItem>
                       </SelectGroup>
                     </SelectContent>
                   </Select>
                 </FormControl>
-                <blockquote class="h-5">
-                  <FormMessage />
-                </blockquote>
               </FormItem>
             </FormField>
-            <FormField
-              v-slot="{ componentField }"
-              name="maxContextLoadTime"
-            >
-              <FormItem>
-                <FormLabel class="mb-2">
-                  <!-- defaultSummaryModel -->
-                  Timeout
-                </FormLabel>
-                <FormControl>
-                  <Input
-                    :placeholder="$t('prompt.enter',{msg:'Timeout'})"
-                    v-bind="componentField"
-                  />
-                </FormControl>
-                <blockquote class="h-5">
-                  <FormMessage />
-                </blockquote>
-              </FormItem>
-            </FormField>
-          </CardContent>
-          <CardFooter class="flex">
-            <Button
-              class="ml-auto"
-              type="submit"
-              :disabled="diabeld"
-            >
-              Change
-            </Button>
-          </CardFooter>
-        </form>
-      </Card>
+            <Separator />
+            <section class="flex justify-between items-baseline">
+              <Label class="mb-4">
+                主题
+              </Label>
+
+              <Switch
+                :model-value="curDark()"
+                @update:model-value="() => {
+                  toggleMode()
+                }
+                "
+              />
+            </section>
+          </section>
+        </section>
+        <section class="mt-4 flex gap-3">
+          <Popover>
+            <template #default="{ close }">
+              <PopoverTrigger as-child>
+                <Button
+                  class="ml-auto"
+                  variant="outline"
+                >
+                  {{ $t("login.exit") }}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent class="w-80">
+                <div class="grid gap-4">
+                  <p class="leading-7 not-first:mt-6  ">
+                    确认退出登录?
+                  </p>
+                  <section class="flex gap-4">
+                    <Button
+                      variant="outline"
+                      class="ml-auto"
+                      @click="() => { close() }"
+                    >
+                      取消
+                    </Button>
+                    <Button @click="() => { exit(); close() }">
+                      确定
+                    </Button>
+                  </section>
+                </div>
+              </PopoverContent>
+            </template>
+          </Popover>
+      
+          <Button
+         
+            :disabled="settingLoading"
+            type="submit"
+          >
+            <Spinner v-if="settingLoading" />
+            更改
+          </Button>
+        </section>
+      </form>
     </section>
   </section>
 </template>
@@ -179,116 +188,121 @@
 <script setup lang="ts">
 import { useMutation, useQuery, useQueryCache } from '@pinia/colada'
 import request from '@/utils/request'
-import { watch, reactive, computed } from 'vue'
+import { watch } from 'vue'
 import { toTypedSchema } from '@vee-validate/zod'
 import z from 'zod'
-import { useForm, useFormValues } from 'vee-validate'
+import { useForm } from 'vee-validate'
 import {
   Input,
-  Card,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  CardContent,
   FormField,
-  FormItem,
-  FormLabel,
+  FormItem,  
   FormControl,
   Button,
-  FormMessage,
   Select,
   SelectTrigger,
   SelectContent,
   SelectValue,
   SelectGroup,
   SelectItem,
-  CardFooter
+  Label,
+  Separator,
+  Switch,
+  Spinner,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
 } from '@memoh/ui'
+import SvgIcon from '@jamescoyle/vue-icon'
+import { mdiRobotOutline, mdiCog } from '@mdi/js'
+import { toast } from 'vue-sonner'
+import i18n from '@/i18n'
+import { useColorMode } from '@vueuse/core'
+import { useRouter } from 'vue-router'
+import { useUserStore } from '../../store/User'
+const router=useRouter()
 
-type ModelList = {
-  id: ModelTable['id'],
-  model: Omit<ModelTable, 'id' | 'defaultChatModel' | 'defaultEmbeddingModel' | 'defaultSummaryModel'>
-};
+const { exitLogin } = useUserStore()
+const exit = () => {
+  exitLogin()
+  router.replace({ name: 'Login' })
+}
 
-const modelType = reactive<{
-  chat: ModelList[],
-  embedding: ModelList[],
-  summary: ModelList[]
-}>({
-  chat: [],
-  embedding: [],
-  summary: []
-})
+const mode = useColorMode()
+const modeToggleMap: Record<'dark' | 'light', 'dark' | 'light'> = {
+  dark: 'light',
+  light: 'dark'
+}
+const toggleMode = () => {
+  if (mode.value !== 'auto') {
+    mode.value = modeToggleMap[mode.value]
+  }
+}
+
+const curDark = () => {
+  return mode.value==='dark'?true:false
+}
+
 
 const { data: settingData } = useQuery({
   key: ['Setting'],
-  query: async () => {
-    const modelData = await request({
-      url: '/model/',
-      method: 'get'
-    })
-    for (const modelItems of modelData.data.items) {
-      let type = modelItems.model.type as keyof typeof modelType
-      modelType[type].push(modelItems)
+  query: async () => request({
+    url: '/settings',
+    method: 'get'
+  }).then(fetchSetting => {
+    // if(f)
+  
+    if (fetchSetting?.data?.language&&!i18n.global.availableLocales.includes(fetchSetting?.data?.language)) {
+  
+      fetchSetting.data.language='zh'
     }
-    return await request({
-      url: '/settings/',
-      method: 'get'
-    })
-  }
+  
+    return fetchSetting?.data
+  })
 })
 
 const formSchema = toTypedSchema(z.object({
-  defaultChatModel: z.any(),
-  defaultEmbeddingModel: z.any(),
-  defaultSummaryModel: z.any(),
-  maxContextLoadTime: z.coerce.number().min(1500),
-  language: z.literal(['ch', 'en'])
+  chat_model_id: z.coerce.string(),
+  embedding_model_id: z.coerce.string(),
+  language: z.coerce.string(),
+  max_context_load_time: z.coerce.number().min(1000),
+  memory_model_id: z.coerce.string()
 }))
 
 const form = useForm({
   validationSchema: formSchema
 })
 
-const currentSetting = useFormValues()
-
-const diabeld = computed(() => {
-  return Object.keys(currentSetting.value).every((property) => {
-    const curKey = currentSetting.value[property]
-    const cacheKey = settingData.value?.data?.data?.[property]
-    if (curKey === cacheKey || Number(curKey) === Number(cacheKey)) {
-      return true
-    }
-  })
-})
-watch(settingData, () => {
-  form.setValues({
-    ...(settingData.value?.data.data ?? {})
-  })
-}, {
-  immediate: true
+watch(settingData, () => { 
+  form.setValues(settingData.value)
+  form.values=settingData.value
 })
 
-
-const cacheQuery=useQueryCache()
-const { mutate: fetchSetting } = useMutation({
-  mutation: (data:typeof currentSetting.value) => request({
-    url: '/settings/',
-    data
+const cacheQuery = useQueryCache()
+const { mutate: fetchSetting,isLoading:settingLoading,status } = useMutation({
+  mutation: (data:typeof form.values) => request({
+    url: '/settings',
+    data,
+    method:'POST'
   }),
   onSettled: () => {
     cacheQuery.invalidateQueries({
-      key:['Setting']
+      key: ['Setting']
     })
   }
 })
+
+watch(status, () => {
+  if (status.value === 'error') {
+    toast.error('保存失败') 
+  }
+})
 const changeSetting = form.handleSubmit(async (value) => {
- 
-  try {
-    await fetchSetting(value)    
+
+  try { 
+    await fetchSetting(value)
   } catch {
-      return 
-    }  
+    return
+  }
 })
 
 </script>

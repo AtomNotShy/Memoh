@@ -325,6 +325,9 @@ CREATE INDEX IF NOT EXISTS idx_subagents_deleted ON subagents(deleted);
 
 CREATE TABLE IF NOT EXISTS user_settings (
   user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  chat_model_id TEXT,
+  memory_model_id TEXT,
+  embedding_model_id TEXT,
   max_context_load_time INTEGER NOT NULL DEFAULT 1440,
-  language TEXT NOT NULL DEFAULT 'Same as user input'
+  language TEXT NOT NULL
 );

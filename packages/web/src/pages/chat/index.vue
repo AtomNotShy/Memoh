@@ -8,16 +8,15 @@
         <ChatList />
       </ScrollArea>
     </section>
-    <section class="flex-none relative mt-60">
-      <section class="mb-8 logo-title">
-        <img
-          src="../../../public/logo.png"
-          width="100"
-          class="m-auto"
-          alt="logo.png"
+    <section class="flex-none relative m-auto">
+      <section class="mb-20 logo-title">
+        <h4
+          class="scroll-m-20 text-3xl font-semibold tracking-tight text-center title-container"
+          style="font-family: 'Source Han Serif CN', 'Noto Serif SC', 'STSong', 'SimSun', serif;"
         >
-        <h4 class="scroll-m-20 text-xl font-semibold tracking-tight text-center text-muted-foreground title-container">
-          Memoh
+          <TextGenerateEffect          
+            words="您好！有什么能帮助您的?"
+          />
         </h4>
       </section>
      
@@ -54,15 +53,15 @@
 import {
   ScrollArea,
   Textarea,
-  Button
+  Button,
+  TextGenerateEffect
 } from '@memoh/ui'
 import SvgIcon from '@jamescoyle/vue-icon'
 import { mdiSendOutline } from '@mdi/js'
 import ChatList from '@/components/ChatList/index.vue'
 import { provide, ref } from 'vue'
 import { useChatList } from '@/store/ChatList'
-import {storeToRefs} from 'pinia'
-
+import { storeToRefs } from 'pinia'
 const chatSay = ref('')
 const curInputSay = ref('')
 

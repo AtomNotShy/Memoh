@@ -128,12 +128,10 @@
         >
           <ItemContent>
             <ItemTitle>
-              {{ modelData.name }}                     
+              {{ modelData.name }}
             </ItemTitle>
             <ItemDescription class="gap-2 flex flex-wrap items-center mt-3 ">
-              <Badge
-                variant="outline"
-              >
+              <Badge variant="outline">
                 {{ modelData.type }}
               </Badge>
             </ItemDescription>
@@ -147,7 +145,7 @@
                   as: value as string === 'empty' ? '' : value as string,
                   model_id: modelData.model_id
                 })
-           
+
               }"
             >
               <SelectTrigger class="w-full">
@@ -244,7 +242,7 @@
 
 <script setup lang="ts">
 import {
-  Switch, Separator, Spinner, Input, Button,
+  Separator, Spinner, Input, Button,
   FormControl,
   FormField,
   FormItem,
@@ -296,7 +294,7 @@ provide('openModel', toRef(openModel, 'state'))
 provide('openModelTitle', toRef(openModel, 'title'))
 provide('openModelState', toRef(openModel, 'curState'))
 
-const deleteEnableAd = (value:ModelInfo) => {
+const deleteEnableAd = (value: ModelInfo) => {
   const copyModelData = { ...value }
   if ('enable_as' in copyModelData) {
     delete copyModelData['enable_as']

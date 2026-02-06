@@ -61,10 +61,10 @@ type ChannelSession struct {
 	BotID           pgtype.UUID        `json:"bot_id"`
 	ChannelConfigID pgtype.UUID        `json:"channel_config_id"`
 	UserID          pgtype.UUID        `json:"user_id"`
+	ContactID       pgtype.UUID        `json:"contact_id"`
 	Platform        string             `json:"platform"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
-	ContactID       pgtype.UUID        `json:"contact_id"`
 }
 
 type Contact struct {

@@ -52,10 +52,13 @@ watch(filterProvider, () => {
     key: ['provider']
   })
 }, {
-  immediate: true
+  immediate:true
 })
 
+
 const curProvider = ref<Partial<ProviderInfo> & { id: string }>()
+provide('curProvider', curProvider)
+
 const selectProvider = (value: string) => computed(() => {
   return curProvider.value?.name === value
 })
@@ -198,4 +201,4 @@ const openStatus = reactive({
       </SidebarProvider>
     </div>
   </div>
-</template>
+</template>    
