@@ -1,6 +1,12 @@
 package channel
 
-import "strings"
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"strings"
+	"time"
+)
 
 // ChunkerMode selects the text chunking strategy.
 type ChunkerMode string
@@ -170,4 +176,209 @@ func splitLongLine(line string, limit int) []string {
 		chunks = append(chunks, segment)
 	}
 	return chunks
+}
+
+// --- Outbound pipeline methods (used by Manager) ---
+
+func (m *Manager) resolveOutboundPolicy(channelType ChannelType) OutboundPolicy {
+	policy, ok := m.registry.GetOutboundPolicy(channelType)
+	if !ok {
+		policy = OutboundPolicy{}
+	}
+	return NormalizeOutboundPolicy(policy)
+}
+
+// buildOutboundMessages splits an outbound message into multiple messages based on the policy.
+func buildOutboundMessages(msg OutboundMessage, policy OutboundPolicy) ([]OutboundMessage, error) {
+	if msg.Message.IsEmpty() {
+		return nil, fmt.Errorf("message is required")
+	}
+	normalized := normalizeOutboundMessage(msg.Message)
+	chunker := policy.Chunker
+	if normalized.Format == MessageFormatMarkdown {
+		chunker = ChunkMarkdownText
+	}
+	base := normalized
+	base.Attachments = nil
+	textMessages := make([]OutboundMessage, 0)
+	shouldChunk := policy.TextChunkLimit > 0 && strings.TrimSpace(base.Text) != "" && len(base.Parts) == 0
+	if shouldChunk {
+		chunks := chunker(base.Text, policy.TextChunkLimit)
+		for idx, chunk := range chunks {
+			chunk = strings.TrimSpace(chunk)
+			if chunk == "" {
+				continue
+			}
+			actions := base.Actions
+			if len(chunks) > 1 && idx < len(chunks)-1 {
+				actions = nil
+			}
+			item := OutboundMessage{
+				Target: msg.Target,
+				Message: Message{
+					ID:          base.ID,
+					Format:      base.Format,
+					Text:        chunk,
+					Parts:       base.Parts,
+					Attachments: nil,
+					Actions:     actions,
+					Thread:      base.Thread,
+					Reply:       base.Reply,
+					Metadata:    base.Metadata,
+				},
+			}
+			textMessages = append(textMessages, item)
+		}
+	} else if !base.IsEmpty() {
+		textMessages = append(textMessages, OutboundMessage{Target: msg.Target, Message: base})
+	}
+
+	attachments := normalized.Attachments
+	attachmentMessages := make([]OutboundMessage, 0)
+	if len(attachments) > 0 {
+		media := normalized
+		media.Format = ""
+		media.Text = ""
+		media.Parts = nil
+		media.Actions = nil
+		media.Attachments = attachments
+		attachmentMessages = append(attachmentMessages, OutboundMessage{Target: msg.Target, Message: media})
+	}
+
+	if len(textMessages) == 0 && len(attachmentMessages) == 0 {
+		return nil, fmt.Errorf("message is required")
+	}
+	if policy.MediaOrder == OutboundOrderTextFirst {
+		return append(textMessages, attachmentMessages...), nil
+	}
+	return append(attachmentMessages, textMessages...), nil
+}
+
+func normalizeOutboundMessage(msg Message) Message {
+	if msg.Format == "" {
+		if len(msg.Parts) > 0 {
+			msg.Format = MessageFormatRich
+		} else if strings.TrimSpace(msg.Text) != "" {
+			msg.Format = MessageFormatPlain
+		}
+	}
+	return msg
+}
+
+func validateMessageCapabilities(registry *Registry, channelType ChannelType, msg Message) error {
+	caps, ok := registry.GetCapabilities(channelType)
+	if !ok {
+		return nil
+	}
+	switch msg.Format {
+	case MessageFormatPlain:
+		if !caps.Text {
+			return fmt.Errorf("channel does not support plain text")
+		}
+	case MessageFormatMarkdown:
+		if !caps.Markdown && !caps.RichText {
+			return fmt.Errorf("channel does not support markdown")
+		}
+	case MessageFormatRich:
+		if !caps.RichText {
+			return fmt.Errorf("channel does not support rich text")
+		}
+	}
+	if len(msg.Parts) > 0 && !caps.RichText {
+		return fmt.Errorf("channel does not support rich text")
+	}
+	if len(msg.Attachments) > 0 && !caps.Attachments {
+		return fmt.Errorf("channel does not support attachments")
+	}
+	if len(msg.Attachments) > 0 && requiresMedia(msg.Attachments) && !caps.Media {
+		return fmt.Errorf("channel does not support media")
+	}
+	if len(msg.Actions) > 0 && !caps.Buttons {
+		return fmt.Errorf("channel does not support actions")
+	}
+	if msg.Thread != nil && !caps.Threads {
+		return fmt.Errorf("channel does not support threads")
+	}
+	if msg.Reply != nil && !caps.Reply {
+		return fmt.Errorf("channel does not support reply")
+	}
+	return nil
+}
+
+func (m *Manager) sendWithConfig(ctx context.Context, sender Sender, cfg ChannelConfig, msg OutboundMessage, policy OutboundPolicy) error {
+	if sender == nil {
+		return fmt.Errorf("unsupported channel type: %s", cfg.ChannelType)
+	}
+	target := strings.TrimSpace(msg.Target)
+	if target == "" {
+		return fmt.Errorf("target is required")
+	}
+	if msg.Message.IsEmpty() {
+		return fmt.Errorf("message is required")
+	}
+	if err := validateMessageCapabilities(m.registry, cfg.ChannelType, msg.Message); err != nil {
+		return err
+	}
+	var lastErr error
+	for i := 0; i < policy.RetryMax; i++ {
+		err := sender.Send(ctx, cfg, OutboundMessage{Target: target, Message: msg.Message})
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if m.logger != nil {
+			m.logger.Warn("send outbound retry",
+				slog.String("channel", cfg.ChannelType.String()),
+				slog.Int("attempt", i+1),
+				slog.Any("error", err))
+		}
+		time.Sleep(time.Duration(i+1) * time.Duration(policy.RetryBackoffMs) * time.Millisecond)
+	}
+	return fmt.Errorf("send outbound failed after retries: %w", lastErr)
+}
+
+func requiresMedia(attachments []Attachment) bool {
+	for _, att := range attachments {
+		switch att.Type {
+		case AttachmentAudio, AttachmentVideo, AttachmentVoice, AttachmentGIF:
+			return true
+		default:
+			continue
+		}
+	}
+	return false
+}
+
+func (m *Manager) newReplySender(cfg ChannelConfig, channelType ChannelType) ReplySender {
+	sender, _ := m.registry.GetSender(channelType)
+	return &managerReplySender{
+		manager:     m,
+		sender:      sender,
+		channelType: channelType,
+		config:      cfg,
+	}
+}
+
+type managerReplySender struct {
+	manager     *Manager
+	sender      Sender
+	channelType ChannelType
+	config      ChannelConfig
+}
+
+func (s *managerReplySender) Send(ctx context.Context, msg OutboundMessage) error {
+	if s.manager == nil {
+		return fmt.Errorf("channel manager not configured")
+	}
+	policy := s.manager.resolveOutboundPolicy(s.channelType)
+	outbound, err := buildOutboundMessages(msg, policy)
+	if err != nil {
+		return err
+	}
+	for _, item := range outbound {
+		if err := s.manager.sendWithConfig(ctx, s.sender, s.config, item, policy); err != nil {
+			return err
+		}
+	}
+	return nil
 }

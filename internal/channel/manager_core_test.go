@@ -13,6 +13,9 @@ type mockAdapter struct {
 }
 
 func (m *mockAdapter) Type() ChannelType { return ChannelType("test") }
+func (m *mockAdapter) Descriptor() Descriptor {
+	return Descriptor{Type: ChannelType("test"), DisplayName: "Test", Capabilities: ChannelCapabilities{Text: true}}
+}
 func (m *mockAdapter) Send(ctx context.Context, cfg ChannelConfig, msg OutboundMessage) error {
 	m.sentMessages = append(m.sentMessages, msg)
 	return nil
@@ -53,7 +56,8 @@ func TestManager_HandleInbound_CoreLogic(t *testing.T) {
 			},
 		}
 
-		m := NewManager(logger, &fakeConfigStore{}, processor)
+		reg := NewRegistry()
+		m := NewManager(logger, reg, &fakeConfigStore{}, processor)
 		adapter := &mockAdapter{}
 		m.RegisterAdapter(adapter)
 
@@ -87,7 +91,8 @@ func TestManager_HandleInbound_CoreLogic(t *testing.T) {
 
 	t.Run("无回复_不发送", func(t *testing.T) {
 		processor := &fakeInboundProcessor{resp: nil}
-		m := NewManager(logger, &fakeConfigStore{}, processor)
+		reg := NewRegistry()
+		m := NewManager(logger, reg, &fakeConfigStore{}, processor)
 		adapter := &mockAdapter{}
 		m.RegisterAdapter(adapter)
 
@@ -110,7 +115,8 @@ func TestManager_HandleInbound_CoreLogic(t *testing.T) {
 
 	t.Run("处理失败_返回错误", func(t *testing.T) {
 		processor := &fakeInboundProcessor{err: context.Canceled}
-		m := NewManager(logger, &fakeConfigStore{}, processor)
+		reg := NewRegistry()
+		m := NewManager(logger, reg, &fakeConfigStore{}, processor)
 		cfg := ChannelConfig{ID: "bot-1"}
 		msg := InboundMessage{Message: Message{Text: "  "}} // 空格消息
 

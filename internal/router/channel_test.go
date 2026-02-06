@@ -134,7 +134,7 @@ func TestChannelInboundProcessorBoundUser(t *testing.T) {
 			},
 		},
 	}
-	processor := NewChannelInboundProcessor(slog.Default(), store, gateway, &fakeContactService{}, &fakePolicyService{}, nil, "", 0)
+	processor := NewChannelInboundProcessor(slog.Default(), nil, store, gateway, &fakeContactService{}, &fakePolicyService{}, nil, "", 0)
 	sender := &fakeReplySender{}
 
 	cfg := channel.ChannelConfig{ID: "cfg-1", BotID: "bot-1", ChannelType: channel.ChannelType("feishu")}
@@ -166,7 +166,7 @@ func TestChannelInboundProcessorBoundUser(t *testing.T) {
 func TestChannelInboundProcessorUnboundUser(t *testing.T) {
 	store := &fakeConfigStore{}
 	gateway := &fakeChatGateway{}
-	processor := NewChannelInboundProcessor(slog.Default(), store, gateway, &fakeContactService{}, &fakePolicyService{}, nil, "", 0)
+	processor := NewChannelInboundProcessor(slog.Default(), nil, store, gateway, &fakeContactService{}, &fakePolicyService{}, nil, "", 0)
 	sender := &fakeReplySender{}
 
 	cfg := channel.ChannelConfig{ID: "cfg-1", BotID: "bot-1", ChannelType: channel.ChannelType("feishu")}
@@ -191,7 +191,7 @@ func TestChannelInboundProcessorUnboundUser(t *testing.T) {
 func TestChannelInboundProcessorIgnoreEmpty(t *testing.T) {
 	store := &fakeConfigStore{}
 	gateway := &fakeChatGateway{}
-	processor := NewChannelInboundProcessor(slog.Default(), store, gateway, &fakeContactService{}, &fakePolicyService{}, nil, "", 0)
+	processor := NewChannelInboundProcessor(slog.Default(), nil, store, gateway, &fakeContactService{}, &fakePolicyService{}, nil, "", 0)
 	sender := &fakeReplySender{}
 
 	cfg := channel.ChannelConfig{ID: "cfg-1"}
@@ -223,7 +223,7 @@ func TestChannelInboundProcessorSilentReply(t *testing.T) {
 			},
 		},
 	}
-	processor := NewChannelInboundProcessor(slog.Default(), store, gateway, &fakeContactService{}, &fakePolicyService{}, nil, "", 0)
+	processor := NewChannelInboundProcessor(slog.Default(), nil, store, gateway, &fakeContactService{}, &fakePolicyService{}, nil, "", 0)
 	sender := &fakeReplySender{}
 
 	cfg := channel.ChannelConfig{ID: "cfg-1", BotID: "bot-1", ChannelType: channel.ChannelType("feishu")}
@@ -272,7 +272,7 @@ func TestChannelInboundProcessorSuppressOnToolSend(t *testing.T) {
 			},
 		},
 	}
-	processor := NewChannelInboundProcessor(slog.Default(), store, gateway, &fakeContactService{}, &fakePolicyService{}, nil, "", 0)
+	processor := NewChannelInboundProcessor(slog.Default(), nil, store, gateway, &fakeContactService{}, &fakePolicyService{}, nil, "", 0)
 	sender := &fakeReplySender{}
 
 	cfg := channel.ChannelConfig{ID: "cfg-1", BotID: "bot-1", ChannelType: channel.ChannelType("feishu")}
@@ -321,7 +321,7 @@ func TestChannelInboundProcessorDedupeWithToolSend(t *testing.T) {
 			},
 		},
 	}
-	processor := NewChannelInboundProcessor(slog.Default(), store, gateway, &fakeContactService{}, &fakePolicyService{}, nil, "", 0)
+	processor := NewChannelInboundProcessor(slog.Default(), nil, store, gateway, &fakeContactService{}, &fakePolicyService{}, nil, "", 0)
 	sender := &fakeReplySender{}
 
 	cfg := channel.ChannelConfig{ID: "cfg-1", BotID: "bot-1", ChannelType: channel.ChannelType("feishu")}

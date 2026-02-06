@@ -22,10 +22,11 @@ type UsersHandler struct {
 	botService     *bots.Service
 	channelService *channel.Service
 	channelManager *channel.Manager
+	registry       *channel.Registry
 	logger         *slog.Logger
 }
 
-func NewUsersHandler(log *slog.Logger, service *users.Service, botService *bots.Service, channelService *channel.Service, channelManager *channel.Manager) *UsersHandler {
+func NewUsersHandler(log *slog.Logger, service *users.Service, botService *bots.Service, channelService *channel.Service, channelManager *channel.Manager, registry *channel.Registry) *UsersHandler {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -34,6 +35,7 @@ func NewUsersHandler(log *slog.Logger, service *users.Service, botService *bots.
 		botService:     botService,
 		channelService: channelService,
 		channelManager: channelManager,
+		registry:       registry,
 		logger:         log.With(slog.String("handler", "users")),
 	}
 }
@@ -667,7 +669,7 @@ func (h *UsersHandler) GetBotChannelConfig(c echo.Context) error {
 	if _, err := h.authorizeBotAccess(c.Request().Context(), actorID, botID); err != nil {
 		return err
 	}
-	channelType, err := channel.ParseChannelType(c.Param("platform"))
+	channelType, err := h.registry.ParseChannelType(c.Param("platform"))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
@@ -706,7 +708,7 @@ func (h *UsersHandler) UpsertBotChannelConfig(c echo.Context) error {
 	if _, err := h.authorizeBotAccess(c.Request().Context(), actorID, botID); err != nil {
 		return err
 	}
-	channelType, err := channel.ParseChannelType(c.Param("platform"))
+	channelType, err := h.registry.ParseChannelType(c.Param("platform"))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
@@ -752,7 +754,7 @@ func (h *UsersHandler) SendBotMessage(c echo.Context) error {
 	if h.channelManager == nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "channel manager not configured")
 	}
-	channelType, err := channel.ParseChannelType(c.Param("platform"))
+	channelType, err := h.registry.ParseChannelType(c.Param("platform"))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
@@ -791,7 +793,7 @@ func (h *UsersHandler) SendBotMessageSession(c echo.Context) error {
 	if botID == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
 	}
-	channelType, err := channel.ParseChannelType(c.Param("platform"))
+	channelType, err := h.registry.ParseChannelType(c.Param("platform"))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}

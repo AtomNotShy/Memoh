@@ -4207,10 +4207,6 @@ const docTemplate = `{
                 "botID": {
                     "type": "string"
                 },
-                "capabilities": {
-                    "type": "object",
-                    "additionalProperties": {}
-                },
                 "channelType": {
                     "type": "string"
                 },
@@ -4506,10 +4502,6 @@ const docTemplate = `{
         "channel.UpsertConfigRequest": {
             "type": "object",
             "properties": {
-                "capabilities": {
-                    "type": "object",
-                    "additionalProperties": {}
-                },
                 "credentials": {
                     "type": "object",
                     "additionalProperties": {}

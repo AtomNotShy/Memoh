@@ -42,22 +42,24 @@ var (
 // ChannelInboundProcessor 将 channel 入站消息路由到 chat，并返回可发送的回复。
 type ChannelInboundProcessor struct {
 	chat      ChatGateway
+	registry  *channel.Registry
 	logger    *slog.Logger
 	jwtSecret string
 	tokenTTL  time.Duration
 	identity  *IdentityResolver
 }
 
-func NewChannelInboundProcessor(log *slog.Logger, store channel.ConfigStore, chatGateway ChatGateway, contactService ContactService, policyService PolicyService, preauthService PreauthService, jwtSecret string, tokenTTL time.Duration) *ChannelInboundProcessor {
+func NewChannelInboundProcessor(log *slog.Logger, registry *channel.Registry, store channel.ConfigStore, chatGateway ChatGateway, contactService ContactService, policyService PolicyService, preauthService PreauthService, jwtSecret string, tokenTTL time.Duration) *ChannelInboundProcessor {
 	if log == nil {
 		log = slog.Default()
 	}
 	if tokenTTL <= 0 {
 		tokenTTL = 5 * time.Minute
 	}
-	identityResolver := NewIdentityResolver(log, store, contactService, policyService, preauthService, "", "")
+	identityResolver := NewIdentityResolver(log, registry, store, contactService, policyService, preauthService, "", "")
 	return &ChannelInboundProcessor{
 		chat:      chatGateway,
+		registry:  registry,
 		logger:    log.With(slog.String("component", "channel_router")),
 		jwtSecret: strings.TrimSpace(jwtSecret),
 		tokenTTL:  tokenTTL,
@@ -128,7 +130,10 @@ func (p *ChannelInboundProcessor) HandleInbound(ctx context.Context, cfg channel
 			token = "Bearer " + signed
 		}
 	}
-	desc, _ := channel.GetChannelDescriptor(msg.Channel)
+	var desc channel.Descriptor
+	if p.registry != nil {
+		desc, _ = p.registry.GetDescriptor(msg.Channel)
+	}
 	resp, err := p.chat.Chat(ctx, chat.ChatRequest{
 		BotID:           identity.BotID,
 		SessionID:       identity.SessionID,
@@ -157,7 +162,7 @@ func (p *ChannelInboundProcessor) HandleInbound(ctx context.Context, cfg channel
 	if target == "" {
 		return fmt.Errorf("reply target missing")
 	}
-	sentTexts, suppressReplies := collectMessageToolContext(resp.Messages, msg.Channel, target)
+	sentTexts, suppressReplies := collectMessageToolContext(p.registry, resp.Messages, msg.Channel, target)
 	if suppressReplies {
 		return nil
 	}
@@ -352,7 +357,7 @@ type sendMessageToolArgs struct {
 	Message  *channel.Message `json:"message"`
 }
 
-func collectMessageToolContext(messages []chat.ModelMessage, channelType channel.ChannelType, replyTarget string) ([]string, bool) {
+func collectMessageToolContext(registry *channel.Registry, messages []chat.ModelMessage, channelType channel.ChannelType, replyTarget string) ([]string, bool) {
 	if len(messages) == 0 {
 		return nil, false
 	}
@@ -370,7 +375,7 @@ func collectMessageToolContext(messages []chat.ModelMessage, channelType channel
 			if text := strings.TrimSpace(extractSendMessageText(args)); text != "" {
 				sentTexts = append(sentTexts, text)
 			}
-			if shouldSuppressForToolCall(args, channelType, replyTarget) {
+			if shouldSuppressForToolCall(registry, args, channelType, replyTarget) {
 				suppressReplies = true
 			}
 		}
@@ -405,7 +410,7 @@ func extractSendMessageText(args sendMessageToolArgs) string {
 	return strings.TrimSpace(args.Message.PlainText())
 }
 
-func shouldSuppressForToolCall(args sendMessageToolArgs, channelType channel.ChannelType, replyTarget string) bool {
+func shouldSuppressForToolCall(registry *channel.Registry, args sendMessageToolArgs, channelType channel.ChannelType, replyTarget string) bool {
 	platform := strings.TrimSpace(args.Platform)
 	if platform == "" {
 		platform = string(channelType)
@@ -420,16 +425,19 @@ func shouldSuppressForToolCall(args sendMessageToolArgs, channelType channel.Cha
 	if strings.TrimSpace(target) == "" || strings.TrimSpace(replyTarget) == "" {
 		return false
 	}
-	normalizedTarget := normalizeReplyTarget(channelType, target)
-	normalizedReply := normalizeReplyTarget(channelType, replyTarget)
+	normalizedTarget := normalizeReplyTarget(registry, channelType, target)
+	normalizedReply := normalizeReplyTarget(registry, channelType, replyTarget)
 	if normalizedTarget == "" || normalizedReply == "" {
 		return false
 	}
 	return normalizedTarget == normalizedReply
 }
 
-func normalizeReplyTarget(channelType channel.ChannelType, target string) string {
-	normalized, ok := channel.NormalizeTarget(channelType, target)
+func normalizeReplyTarget(registry *channel.Registry, channelType channel.ChannelType, target string) string {
+	if registry == nil {
+		return strings.TrimSpace(target)
+	}
+	normalized, ok := registry.NormalizeTarget(channelType, target)
 	if ok && strings.TrimSpace(normalized) != "" {
 		return strings.TrimSpace(normalized)
 	}

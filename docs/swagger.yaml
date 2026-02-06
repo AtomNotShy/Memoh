@@ -178,9 +178,6 @@ definitions:
     properties:
       botID:
         type: string
-      capabilities:
-        additionalProperties: {}
-        type: object
       channelType:
         type: string
       createdAt:
@@ -385,9 +382,6 @@ definitions:
     type: object
   channel.UpsertConfigRequest:
     properties:
-      capabilities:
-        additionalProperties: {}
-        type: object
       credentials:
         additionalProperties: {}
         type: object

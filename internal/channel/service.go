@@ -8,21 +8,25 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/memohai/memoh/internal/db"
 	"github.com/memohai/memoh/internal/db/sqlc"
 )
 
 // Service provides CRUD operations for channel configurations, user bindings, and sessions.
 type Service struct {
-	queries *sqlc.Queries
+	queries  *sqlc.Queries
+	registry *Registry
 }
 
-// NewService creates a Service backed by the given database queries.
-func NewService(queries *sqlc.Queries) *Service {
-	return &Service{queries: queries}
+// NewService creates a Service backed by the given database queries and adapter registry.
+func NewService(queries *sqlc.Queries, registry *Registry) *Service {
+	if registry == nil {
+		registry = NewRegistry()
+	}
+	return &Service{queries: queries, registry: registry}
 }
 
 // UpsertConfig creates or updates a bot's channel configuration.
@@ -33,7 +37,7 @@ func (s *Service) UpsertConfig(ctx context.Context, botID string, channelType Ch
 	if channelType == "" {
 		return ChannelConfig{}, fmt.Errorf("channel type is required")
 	}
-	normalized, err := NormalizeChannelConfig(channelType, req.Credentials)
+	normalized, err := s.registry.NormalizeConfig(channelType, req.Credentials)
 	if err != nil {
 		return ChannelConfig{}, err
 	}
@@ -41,7 +45,7 @@ func (s *Service) UpsertConfig(ctx context.Context, botID string, channelType Ch
 	if err != nil {
 		return ChannelConfig{}, err
 	}
-	botUUID, err := parseUUID(botID)
+	botUUID, err := db.ParseUUID(botID)
 	if err != nil {
 		return ChannelConfig{}, err
 	}
@@ -98,7 +102,7 @@ func (s *Service) UpsertUserConfig(ctx context.Context, actorUserID string, chan
 	if channelType == "" {
 		return ChannelUserBinding{}, fmt.Errorf("channel type is required")
 	}
-	normalized, err := NormalizeChannelUserConfig(channelType, req.Config)
+	normalized, err := s.registry.NormalizeUserConfig(channelType, req.Config)
 	if err != nil {
 		return ChannelUserBinding{}, err
 	}
@@ -106,7 +110,7 @@ func (s *Service) UpsertUserConfig(ctx context.Context, actorUserID string, chan
 	if err != nil {
 		return ChannelUserBinding{}, err
 	}
-	pgUserID, err := parseUUID(actorUserID)
+	pgUserID, err := db.ParseUUID(actorUserID)
 	if err != nil {
 		return ChannelUserBinding{}, err
 	}
@@ -130,14 +134,14 @@ func (s *Service) ResolveEffectiveConfig(ctx context.Context, botID string, chan
 	if channelType == "" {
 		return ChannelConfig{}, fmt.Errorf("channel type is required")
 	}
-	if IsConfigless(channelType) {
+	if s.registry.IsConfigless(channelType) {
 		return ChannelConfig{
 			ID:          channelType.String() + ":" + strings.TrimSpace(botID),
 			BotID:       strings.TrimSpace(botID),
 			ChannelType: channelType,
 		}, nil
 	}
-	botUUID, err := parseUUID(botID)
+	botUUID, err := db.ParseUUID(botID)
 	if err != nil {
 		return ChannelConfig{}, err
 	}
@@ -159,7 +163,7 @@ func (s *Service) ListConfigsByType(ctx context.Context, channelType ChannelType
 	if s.queries == nil {
 		return nil, fmt.Errorf("channel queries not configured")
 	}
-	if IsConfigless(channelType) {
+	if s.registry.IsConfigless(channelType) {
 		return []ChannelConfig{}, nil
 	}
 	rows, err := s.queries.ListBotChannelConfigsByType(ctx, channelType.String())
@@ -185,7 +189,7 @@ func (s *Service) GetUserConfig(ctx context.Context, actorUserID string, channel
 	if channelType == "" {
 		return ChannelUserBinding{}, fmt.Errorf("channel type is required")
 	}
-	pgUserID, err := parseUUID(actorUserID)
+	pgUserID, err := db.ParseUUID(actorUserID)
 	if err != nil {
 		return ChannelUserBinding{}, err
 	}
@@ -204,12 +208,12 @@ func (s *Service) GetUserConfig(ctx context.Context, actorUserID string, channel
 		return ChannelUserBinding{}, err
 	}
 	return ChannelUserBinding{
-		ID:          toUUIDString(row.ID),
+		ID:          db.UUIDToString(row.ID),
 		ChannelType: ChannelType(row.ChannelType),
-		UserID:      toUUIDString(row.UserID),
+		UserID:      db.UUIDToString(row.UserID),
 		Config:      config,
-		CreatedAt:   timeFromPg(row.CreatedAt),
-		UpdatedAt:   timeFromPg(row.UpdatedAt),
+		CreatedAt:   db.TimeFromPg(row.CreatedAt),
+		UpdatedAt:   db.TimeFromPg(row.UpdatedAt),
 	}, nil
 }
 
@@ -261,7 +265,7 @@ func (s *Service) ListSessionsByBotPlatform(ctx context.Context, botID, platform
 	if platform == "" {
 		return nil, fmt.Errorf("platform is required")
 	}
-	pgBotID, err := parseUUID(botID)
+	pgBotID, err := db.ParseUUID(botID)
 	if err != nil {
 		return nil, err
 	}
@@ -290,26 +294,26 @@ func (s *Service) UpsertChannelSession(ctx context.Context, sessionID string, bo
 	}
 	pgUserID := pgtype.UUID{Valid: false}
 	if strings.TrimSpace(userID) != "" {
-		parsed, err := parseUUID(userID)
+		parsed, err := db.ParseUUID(userID)
 		if err != nil {
 			return err
 		}
 		pgUserID = parsed
 	}
-	botUUID, err := parseUUID(botID)
+	botUUID, err := db.ParseUUID(botID)
 	if err != nil {
 		return err
 	}
 	var channelUUID pgtype.UUID
 	if strings.TrimSpace(channelConfigID) != "" {
-		channelUUID, err = parseUUID(channelConfigID)
+		channelUUID, err = db.ParseUUID(channelConfigID)
 		if err != nil {
 			return err
 		}
 	}
 	pgContactID := pgtype.UUID{Valid: false}
 	if strings.TrimSpace(contactID) != "" {
-		parsed, err := parseUUID(contactID)
+		parsed, err := db.ParseUUID(contactID)
 		if err != nil {
 			return err
 		}
@@ -349,11 +353,11 @@ func (s *Service) ResolveUserBinding(ctx context.Context, channelType ChannelTyp
 	if err != nil {
 		return "", err
 	}
-	if _, ok := GetChannelDescriptor(channelType); !ok {
+	if _, ok := s.registry.Get(channelType); !ok {
 		return "", fmt.Errorf("unsupported channel type: %s", channelType)
 	}
 	for _, row := range rows {
-		if MatchUserBinding(channelType, row.Config, criteria) {
+		if s.registry.MatchUserBinding(channelType, row.Config, criteria) {
 			return row.UserID, nil
 		}
 	}
@@ -382,8 +386,8 @@ func normalizeChannelConfig(row sqlc.BotChannelConfig) (ChannelConfig, error) {
 		externalIdentity = strings.TrimSpace(row.ExternalIdentity.String)
 	}
 	return ChannelConfig{
-		ID:               toUUIDString(row.ID),
-		BotID:            toUUIDString(row.BotID),
+		ID:               db.UUIDToString(row.ID),
+		BotID:            db.UUIDToString(row.BotID),
 		ChannelType:      ChannelType(row.ChannelType),
 		Credentials:      credentials,
 		ExternalIdentity: externalIdentity,
@@ -391,8 +395,8 @@ func normalizeChannelConfig(row sqlc.BotChannelConfig) (ChannelConfig, error) {
 		Routing: routing,
 		Status:  strings.TrimSpace(row.Status),
 		VerifiedAt:       verifiedAt,
-		CreatedAt:        timeFromPg(row.CreatedAt),
-		UpdatedAt:        timeFromPg(row.UpdatedAt),
+		CreatedAt:        db.TimeFromPg(row.CreatedAt),
+		UpdatedAt:        db.TimeFromPg(row.UpdatedAt),
 	}, nil
 }
 
@@ -402,12 +406,12 @@ func normalizeChannelUserBindingRow(row sqlc.UserChannelBinding) (ChannelUserBin
 		return ChannelUserBinding{}, err
 	}
 	return ChannelUserBinding{
-		ID:          toUUIDString(row.ID),
+		ID:          db.UUIDToString(row.ID),
 		ChannelType: ChannelType(row.ChannelType),
-		UserID:      toUUIDString(row.UserID),
+		UserID:      db.UUIDToString(row.UserID),
 		Config:      config,
-		CreatedAt:   timeFromPg(row.CreatedAt),
-		UpdatedAt:   timeFromPg(row.UpdatedAt),
+		CreatedAt:   db.TimeFromPg(row.CreatedAt),
+		UpdatedAt:   db.TimeFromPg(row.UpdatedAt),
 	}, nil
 }
 
@@ -418,49 +422,18 @@ func normalizeChannelSession(row sqlc.ChannelSession) (ChannelSession, error) {
 	}
 	return ChannelSession{
 		SessionID:       row.SessionID,
-		BotID:           toUUIDString(row.BotID),
-		ChannelConfigID: toUUIDString(row.ChannelConfigID),
-		UserID:          toUUIDString(row.UserID),
-		ContactID:       toUUIDString(row.ContactID),
+		BotID:           db.UUIDToString(row.BotID),
+		ChannelConfigID: db.UUIDToString(row.ChannelConfigID),
+		UserID:          db.UUIDToString(row.UserID),
+		ContactID:       db.UUIDToString(row.ContactID),
 		Platform:        row.Platform,
 		ReplyTarget:     strings.TrimSpace(row.ReplyTarget.String),
 		ThreadID:        strings.TrimSpace(row.ThreadID.String),
 		Metadata:        metadata,
-		CreatedAt:       timeFromPg(row.CreatedAt),
-		UpdatedAt:       timeFromPg(row.UpdatedAt),
+		CreatedAt:       db.TimeFromPg(row.CreatedAt),
+		UpdatedAt:       db.TimeFromPg(row.UpdatedAt),
 	}, nil
 }
 
-func parseUUID(id string) (pgtype.UUID, error) {
-	parsed, err := uuid.Parse(strings.TrimSpace(id))
-	if err != nil {
-		return pgtype.UUID{}, fmt.Errorf("invalid UUID: %w", err)
-	}
-	var pgID pgtype.UUID
-	pgID.Valid = true
-	copy(pgID.Bytes[:], parsed[:])
-	return pgID, nil
-}
 
-func toUUIDString(value pgtype.UUID) string {
-	if !value.Valid {
-		return ""
-	}
-	parsed, err := uuid.FromBytes(value.Bytes[:])
-	if err != nil {
-		return ""
-	}
-	return parsed.String()
-}
 
-func timeFromPg(value pgtype.Timestamptz) time.Time {
-	if value.Valid {
-		return value.Time
-	}
-	return time.Time{}
-}
-
-// String returns the channel type as a plain string.
-func (c ChannelType) String() string {
-	return string(c)
-}

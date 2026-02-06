@@ -20,6 +20,38 @@ type ReplySender interface {
 // Adapter is the base interface every channel adapter must implement.
 type Adapter interface {
 	Type() ChannelType
+	Descriptor() Descriptor
+}
+
+// Descriptor holds read-only metadata for a registered channel type.
+// It contains no behavior — all behavior is expressed through optional interfaces.
+type Descriptor struct {
+	Type             ChannelType
+	DisplayName      string
+	Configless       bool
+	Capabilities     ChannelCapabilities
+	OutboundPolicy   OutboundPolicy
+	ConfigSchema     ConfigSchema
+	UserConfigSchema ConfigSchema
+	TargetSpec       TargetSpec
+}
+
+// ConfigNormalizer validates and normalizes channel and user-binding configurations.
+type ConfigNormalizer interface {
+	NormalizeConfig(raw map[string]any) (map[string]any, error)
+	NormalizeUserConfig(raw map[string]any) (map[string]any, error)
+}
+
+// TargetResolver handles delivery target normalization and resolution from user bindings.
+type TargetResolver interface {
+	NormalizeTarget(raw string) string
+	ResolveTarget(userConfig map[string]any) (string, error)
+}
+
+// BindingMatcher matches user-channel bindings and constructs binding configs from identities.
+type BindingMatcher interface {
+	MatchBinding(config map[string]any, criteria BindingCriteria) bool
+	BuildUserConfig(identity Identity) map[string]any
 }
 
 // Sender is an adapter capable of sending outbound messages.

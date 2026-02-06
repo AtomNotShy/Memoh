@@ -61,6 +61,76 @@ func (a *TelegramAdapter) Type() channel.ChannelType {
 	return Type
 }
 
+// Descriptor returns the Telegram channel metadata.
+func (a *TelegramAdapter) Descriptor() channel.Descriptor {
+	return channel.Descriptor{
+		Type:        Type,
+		DisplayName: "Telegram",
+		Capabilities: channel.ChannelCapabilities{
+			Text:        true,
+			Markdown:    true,
+			Reply:       true,
+			Attachments: true,
+			Media:       true,
+		},
+		ConfigSchema: channel.ConfigSchema{
+			Version: 1,
+			Fields: map[string]channel.FieldSchema{
+				"botToken": {
+					Type:     channel.FieldSecret,
+					Required: true,
+					Title:    "Bot Token",
+				},
+			},
+		},
+		UserConfigSchema: channel.ConfigSchema{
+			Version: 1,
+			Fields: map[string]channel.FieldSchema{
+				"username": {Type: channel.FieldString},
+				"user_id":  {Type: channel.FieldString},
+				"chat_id":  {Type: channel.FieldString},
+			},
+		},
+		TargetSpec: channel.TargetSpec{
+			Format: "chat_id | @username",
+			Hints: []channel.TargetHint{
+				{Label: "Chat ID", Example: "123456789"},
+				{Label: "Username", Example: "@alice"},
+			},
+		},
+	}
+}
+
+// NormalizeConfig validates and normalizes a Telegram channel configuration map.
+func (a *TelegramAdapter) NormalizeConfig(raw map[string]any) (map[string]any, error) {
+	return normalizeConfig(raw)
+}
+
+// NormalizeUserConfig validates and normalizes a Telegram user-binding configuration map.
+func (a *TelegramAdapter) NormalizeUserConfig(raw map[string]any) (map[string]any, error) {
+	return normalizeUserConfig(raw)
+}
+
+// NormalizeTarget normalizes a Telegram delivery target string.
+func (a *TelegramAdapter) NormalizeTarget(raw string) string {
+	return normalizeTarget(raw)
+}
+
+// ResolveTarget derives a delivery target from a Telegram user-binding configuration.
+func (a *TelegramAdapter) ResolveTarget(userConfig map[string]any) (string, error) {
+	return resolveTarget(userConfig)
+}
+
+// MatchBinding reports whether a Telegram user binding matches the given criteria.
+func (a *TelegramAdapter) MatchBinding(config map[string]any, criteria channel.BindingCriteria) bool {
+	return matchBinding(config, criteria)
+}
+
+// BuildUserConfig constructs a Telegram user-binding config from an Identity.
+func (a *TelegramAdapter) BuildUserConfig(identity channel.Identity) map[string]any {
+	return buildUserConfig(identity)
+}
+
 // Connect starts long-polling for Telegram updates and forwards messages to the handler.
 func (a *TelegramAdapter) Connect(ctx context.Context, cfg channel.ChannelConfig, handler channel.InboundHandler) (channel.Connection, error) {
 	if a.logger != nil {

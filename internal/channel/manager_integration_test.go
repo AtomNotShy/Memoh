@@ -11,31 +11,6 @@ import (
 	"time"
 )
 
-func init() {
-	_ = RegisterChannel(ChannelDescriptor{
-		Type:                ChannelType("test"),
-		DisplayName:         "Test",
-		NormalizeConfig:     normalizeEmpty,
-		NormalizeUserConfig: normalizeEmpty,
-		ResolveTarget:       resolveTestTarget,
-		Capabilities: ChannelCapabilities{
-			Text: true,
-		},
-	})
-}
-
-func normalizeEmpty(map[string]any) (map[string]any, error) {
-	return map[string]any{}, nil
-}
-
-func resolveTestTarget(config map[string]any) (string, error) {
-	value := strings.TrimSpace(ReadString(config, "target"))
-	if value == "" {
-		return "", fmt.Errorf("missing target")
-	}
-	return "resolved:" + value, nil
-}
-
 type fakeConfigStore struct {
 	effectiveConfig ChannelConfig
 	userConfig      ChannelUserBinding
@@ -122,6 +97,20 @@ func (f *fakeAdapter) Type() ChannelType {
 	return f.channelType
 }
 
+func (f *fakeAdapter) Descriptor() Descriptor {
+	return Descriptor{Type: f.channelType, DisplayName: "Fake", Capabilities: ChannelCapabilities{Text: true}}
+}
+
+func (f *fakeAdapter) ResolveTarget(userConfig map[string]any) (string, error) {
+	value := strings.TrimSpace(ReadString(userConfig, "target"))
+	if value == "" {
+		return "", fmt.Errorf("missing target")
+	}
+	return "resolved:" + value, nil
+}
+
+func (f *fakeAdapter) NormalizeTarget(raw string) string { return strings.TrimSpace(raw) }
+
 func (f *fakeAdapter) Connect(ctx context.Context, cfg ChannelConfig, handler InboundHandler) (Connection, error) {
 	f.mu.Lock()
 	f.started = append(f.started, cfg)
@@ -161,8 +150,9 @@ func TestManagerHandleInboundIntegratesAdapter(t *testing.T) {
 			},
 		},
 	}
+	reg := NewRegistry()
 	adapter := &fakeAdapter{channelType: ChannelType("test")}
-	manager := NewManager(log, store, processor)
+	manager := NewManager(log, reg, store, processor)
 	manager.RegisterAdapter(adapter)
 
 	cfg := ChannelConfig{
@@ -217,8 +207,9 @@ func TestManagerSendUsesBinding(t *testing.T) {
 			Config: map[string]any{"target": "alice"},
 		},
 	}
+	reg := NewRegistry()
 	adapter := &fakeAdapter{channelType: ChannelType("test")}
-	manager := NewManager(log, store, &fakeInboundProcessorIntegration{})
+	manager := NewManager(log, reg, store, &fakeInboundProcessorIntegration{})
 	manager.RegisterAdapter(adapter)
 
 	err := manager.Send(context.Background(), "bot-1", ChannelType("test"), SendRequest{
@@ -246,8 +237,9 @@ func TestManagerReconcileStartsAndStops(t *testing.T) {
 
 	log := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{}))
 	store := &fakeConfigStore{}
+	reg := NewRegistry()
 	adapter := &fakeAdapter{channelType: ChannelType("test")}
-	manager := NewManager(log, store, &fakeInboundProcessorIntegration{})
+	manager := NewManager(log, reg, store, &fakeInboundProcessorIntegration{})
 	manager.RegisterAdapter(adapter)
 
 	cfg := ChannelConfig{

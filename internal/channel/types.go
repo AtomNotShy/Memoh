@@ -3,7 +3,6 @@
 package channel
 
 import (
-	"fmt"
 	"strings"
 	"time"
 )
@@ -11,16 +10,9 @@ import (
 // ChannelType identifies a messaging platform (e.g., "telegram", "feishu").
 type ChannelType string
 
-// ParseChannelType validates and normalizes a raw string into a registered ChannelType.
-func ParseChannelType(raw string) (ChannelType, error) {
-	normalized := normalizeChannelType(raw)
-	if normalized == "" {
-		return "", fmt.Errorf("unsupported channel type: %s", raw)
-	}
-	if _, ok := GetChannelDescriptor(normalized); !ok {
-		return "", fmt.Errorf("unsupported channel type: %s", raw)
-	}
-	return normalized, nil
+// String returns the channel type as a plain string.
+func (c ChannelType) String() string {
+	return string(c)
 }
 
 // Identity represents a sender's identity on a channel.

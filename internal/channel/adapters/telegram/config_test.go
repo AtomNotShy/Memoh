@@ -5,7 +5,7 @@ import "testing"
 func TestNormalizeConfig(t *testing.T) {
 	t.Parallel()
 
-	got, err := NormalizeConfig(map[string]any{
+	got, err := normalizeConfig(map[string]any{
 		"bot_token": "token-123",
 	})
 	if err != nil {
@@ -19,7 +19,7 @@ func TestNormalizeConfig(t *testing.T) {
 func TestNormalizeConfigRequiresToken(t *testing.T) {
 	t.Parallel()
 
-	_, err := NormalizeConfig(map[string]any{})
+	_, err := normalizeConfig(map[string]any{})
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
@@ -28,7 +28,7 @@ func TestNormalizeConfigRequiresToken(t *testing.T) {
 func TestNormalizeUserConfig(t *testing.T) {
 	t.Parallel()
 
-	got, err := NormalizeUserConfig(map[string]any{
+	got, err := normalizeUserConfig(map[string]any{
 		"username": "alice",
 	})
 	if err != nil {
@@ -42,7 +42,7 @@ func TestNormalizeUserConfig(t *testing.T) {
 func TestNormalizeUserConfigRequiresBinding(t *testing.T) {
 	t.Parallel()
 
-	_, err := NormalizeUserConfig(map[string]any{})
+	_, err := normalizeUserConfig(map[string]any{})
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
@@ -51,7 +51,7 @@ func TestNormalizeUserConfigRequiresBinding(t *testing.T) {
 func TestResolveTarget(t *testing.T) {
 	t.Parallel()
 
-	target, err := ResolveTarget(map[string]any{
+	target, err := resolveTarget(map[string]any{
 		"chat_id": "123",
 	})
 	if err != nil {
@@ -65,7 +65,7 @@ func TestResolveTarget(t *testing.T) {
 func TestResolveTargetUsername(t *testing.T) {
 	t.Parallel()
 
-	target, err := ResolveTarget(map[string]any{
+	target, err := resolveTarget(map[string]any{
 		"username": "alice",
 	})
 	if err != nil {

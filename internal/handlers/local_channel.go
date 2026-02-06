@@ -16,6 +16,7 @@ import (
 	"github.com/memohai/memoh/internal/auth"
 	"github.com/memohai/memoh/internal/bots"
 	"github.com/memohai/memoh/internal/channel"
+	"github.com/memohai/memoh/internal/channel/adapters/local"
 	"github.com/memohai/memoh/internal/identity"
 	"github.com/memohai/memoh/internal/users"
 )
@@ -24,12 +25,12 @@ type LocalChannelHandler struct {
 	channelType    channel.ChannelType
 	channelManager *channel.Manager
 	channelService *channel.Service
-	sessionHub     *channel.SessionHub
+	sessionHub     *local.SessionHub
 	botService     *bots.Service
 	userService    *users.Service
 }
 
-func NewLocalChannelHandler(channelType channel.ChannelType, channelManager *channel.Manager, channelService *channel.Service, sessionHub *channel.SessionHub, botService *bots.Service, userService *users.Service) *LocalChannelHandler {
+func NewLocalChannelHandler(channelType channel.ChannelType, channelManager *channel.Manager, channelService *channel.Service, sessionHub *local.SessionHub, botService *bots.Service, userService *users.Service) *LocalChannelHandler {
 	return &LocalChannelHandler{
 		channelType:    channelType,
 		channelManager: channelManager,

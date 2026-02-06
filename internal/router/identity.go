@@ -52,8 +52,15 @@ func IdentityStateFromContext(ctx context.Context) (IdentityState, bool) {
 	return state, ok
 }
 
+// IdentityStore is the minimal persistence interface required by IdentityResolver.
+type IdentityStore interface {
+	channel.BindingStore
+	channel.SessionStore
+}
+
 type IdentityResolver struct {
-	store        channel.ConfigStore
+	registry     *channel.Registry
+	store        IdentityStore
 	contacts     ContactService
 	policy       PolicyService
 	preauth      PreauthService
@@ -71,7 +78,7 @@ type PreauthService interface {
 	MarkUsed(ctx context.Context, id string) (preauth.Key, error)
 }
 
-func NewIdentityResolver(log *slog.Logger, store channel.ConfigStore, contacts ContactService, policyService PolicyService, preauthService PreauthService, unboundReply, preauthReply string) *IdentityResolver {
+func NewIdentityResolver(log *slog.Logger, registry *channel.Registry, store IdentityStore, contacts ContactService, policyService PolicyService, preauthService PreauthService, unboundReply, preauthReply string) *IdentityResolver {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -82,6 +89,7 @@ func NewIdentityResolver(log *slog.Logger, store channel.ConfigStore, contacts C
 		preauthReply = "授权成功，请继续使用。"
 	}
 	return &IdentityResolver{
+		registry:     registry,
 		store:        store,
 		contacts:     contacts,
 		policy:       policyService,
@@ -118,7 +126,7 @@ func (r *IdentityResolver) Resolve(ctx context.Context, cfg channel.ChannelConfi
 
 	sessionID := normalizedMsg.SessionID()
 	channelConfigID := cfg.ID
-	if channel.IsConfigless(msg.Channel) {
+	if r.registry != nil && r.registry.IsConfigless(msg.Channel) {
 		channelConfigID = ""
 	}
 	externalID := extractExternalIdentity(msg)

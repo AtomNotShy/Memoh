@@ -13,11 +13,12 @@ import (
 )
 
 type ChannelHandler struct {
-	service *channel.Service
+	service  *channel.Service
+	registry *channel.Registry
 }
 
-func NewChannelHandler(service *channel.Service) *ChannelHandler {
-	return &ChannelHandler{service: service}
+func NewChannelHandler(service *channel.Service, registry *channel.Registry) *ChannelHandler {
+	return &ChannelHandler{service: service, registry: registry}
 }
 
 func (h *ChannelHandler) Register(e *echo.Echo) {
@@ -45,7 +46,7 @@ func (h *ChannelHandler) GetUserConfig(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	channelType, err := channel.ParseChannelType(c.Param("platform"))
+	channelType, err := h.registry.ParseChannelType(c.Param("platform"))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
@@ -74,7 +75,7 @@ func (h *ChannelHandler) UpsertUserConfig(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	channelType, err := channel.ParseChannelType(c.Param("platform"))
+	channelType, err := h.registry.ParseChannelType(c.Param("platform"))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
@@ -110,7 +111,7 @@ type ChannelMeta struct {
 // @Failure 500 {object} ErrorResponse
 // @Router /channels [get]
 func (h *ChannelHandler) ListChannels(c echo.Context) error {
-	descs := channel.ListChannelDescriptors()
+	descs := h.registry.ListDescriptors()
 	items := make([]ChannelMeta, 0, len(descs))
 	for _, desc := range descs {
 		items = append(items, ChannelMeta{
@@ -139,11 +140,11 @@ func (h *ChannelHandler) ListChannels(c echo.Context) error {
 // @Failure 404 {object} ErrorResponse
 // @Router /channels/{platform} [get]
 func (h *ChannelHandler) GetChannel(c echo.Context) error {
-	channelType, err := channel.ParseChannelType(c.Param("platform"))
+	channelType, err := h.registry.ParseChannelType(c.Param("platform"))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	desc, ok := channel.GetChannelDescriptor(channelType)
+	desc, ok := h.registry.GetDescriptor(channelType)
 	if !ok {
 		return echo.NewHTTPError(http.StatusNotFound, "channel not found")
 	}

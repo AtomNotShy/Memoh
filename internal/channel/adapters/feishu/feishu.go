@@ -40,6 +40,80 @@ func (a *FeishuAdapter) Type() channel.ChannelType {
 	return Type
 }
 
+// Descriptor returns the Feishu channel metadata.
+func (a *FeishuAdapter) Descriptor() channel.Descriptor {
+	return channel.Descriptor{
+		Type:        Type,
+		DisplayName: "Feishu",
+		Capabilities: channel.ChannelCapabilities{
+			Text:        true,
+			RichText:    true,
+			Attachments: true,
+			Reply:       true,
+		},
+		ConfigSchema: channel.ConfigSchema{
+			Version: 1,
+			Fields: map[string]channel.FieldSchema{
+				"appId":     {Type: channel.FieldString, Required: true, Title: "App ID"},
+				"appSecret": {Type: channel.FieldSecret, Required: true, Title: "App Secret"},
+				"encryptKey": {
+					Type:  channel.FieldSecret,
+					Title: "Encrypt Key",
+				},
+				"verificationToken": {
+					Type:  channel.FieldSecret,
+					Title: "Verification Token",
+				},
+			},
+		},
+		UserConfigSchema: channel.ConfigSchema{
+			Version: 1,
+			Fields: map[string]channel.FieldSchema{
+				"open_id": {Type: channel.FieldString},
+				"user_id": {Type: channel.FieldString},
+			},
+		},
+		TargetSpec: channel.TargetSpec{
+			Format: "open_id:xxx | user_id:xxx | chat_id:xxx",
+			Hints: []channel.TargetHint{
+				{Label: "Open ID", Example: "open_id:ou_xxx"},
+				{Label: "User ID", Example: "user_id:ou_xxx"},
+				{Label: "Chat ID", Example: "chat_id:oc_xxx"},
+			},
+		},
+	}
+}
+
+// NormalizeConfig validates and normalizes a Feishu channel configuration map.
+func (a *FeishuAdapter) NormalizeConfig(raw map[string]any) (map[string]any, error) {
+	return normalizeConfig(raw)
+}
+
+// NormalizeUserConfig validates and normalizes a Feishu user-binding configuration map.
+func (a *FeishuAdapter) NormalizeUserConfig(raw map[string]any) (map[string]any, error) {
+	return normalizeUserConfig(raw)
+}
+
+// NormalizeTarget normalizes a Feishu delivery target string.
+func (a *FeishuAdapter) NormalizeTarget(raw string) string {
+	return normalizeTarget(raw)
+}
+
+// ResolveTarget derives a delivery target from a Feishu user-binding configuration.
+func (a *FeishuAdapter) ResolveTarget(userConfig map[string]any) (string, error) {
+	return resolveTarget(userConfig)
+}
+
+// MatchBinding reports whether a Feishu user binding matches the given criteria.
+func (a *FeishuAdapter) MatchBinding(config map[string]any, criteria channel.BindingCriteria) bool {
+	return matchBinding(config, criteria)
+}
+
+// BuildUserConfig constructs a Feishu user-binding config from an Identity.
+func (a *FeishuAdapter) BuildUserConfig(identity channel.Identity) map[string]any {
+	return buildUserConfig(identity)
+}
+
 // Connect establishes a WebSocket connection to Feishu and forwards inbound messages to the handler.
 func (a *FeishuAdapter) Connect(ctx context.Context, cfg channel.ChannelConfig, handler channel.InboundHandler) (channel.Connection, error) {
 	if a.logger != nil {

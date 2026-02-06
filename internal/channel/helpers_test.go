@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+
+	"github.com/memohai/memoh/internal/db"
 )
 
 func TestDecodeConfigMap(t *testing.T) {
@@ -41,10 +43,10 @@ func TestParseUUID(t *testing.T) {
 	t.Parallel()
 
 	id := uuid.NewString()
-	if _, err := parseUUID(id); err != nil {
+	if _, err := db.ParseUUID(id); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if _, err := parseUUID("invalid"); err == nil {
+	if _, err := db.ParseUUID("invalid"); err == nil {
 		t.Fatalf("expected error, got nil")
 	}
 }

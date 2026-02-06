@@ -21,8 +21,7 @@ type UserConfig struct {
 	UserID string
 }
 
-// NormalizeConfig validates and normalizes a Feishu channel configuration map.
-func NormalizeConfig(raw map[string]any) (map[string]any, error) {
+func normalizeConfig(raw map[string]any) (map[string]any, error) {
 	cfg, err := parseConfig(raw)
 	if err != nil {
 		return nil, err
@@ -40,8 +39,7 @@ func NormalizeConfig(raw map[string]any) (map[string]any, error) {
 	return result, nil
 }
 
-// NormalizeUserConfig validates and normalizes a Feishu user-binding configuration map.
-func NormalizeUserConfig(raw map[string]any) (map[string]any, error) {
+func normalizeUserConfig(raw map[string]any) (map[string]any, error) {
 	cfg, err := parseUserConfig(raw)
 	if err != nil {
 		return nil, err
@@ -56,8 +54,7 @@ func NormalizeUserConfig(raw map[string]any) (map[string]any, error) {
 	return result, nil
 }
 
-// ResolveTarget derives a Feishu delivery target from a user-binding configuration.
-func ResolveTarget(raw map[string]any) (string, error) {
+func resolveTarget(raw map[string]any) (string, error) {
 	cfg, err := parseUserConfig(raw)
 	if err != nil {
 		return "", err
@@ -71,8 +68,7 @@ func ResolveTarget(raw map[string]any) (string, error) {
 	return "", fmt.Errorf("feishu binding is incomplete")
 }
 
-// MatchBinding reports whether a Feishu user binding matches the given criteria.
-func MatchBinding(raw map[string]any, criteria channel.BindingCriteria) bool {
+func matchBinding(raw map[string]any, criteria channel.BindingCriteria) bool {
 	cfg, err := parseUserConfig(raw)
 	if err != nil {
 		return false
@@ -91,8 +87,7 @@ func MatchBinding(raw map[string]any, criteria channel.BindingCriteria) bool {
 	return false
 }
 
-// BuildUserConfig constructs a Feishu user-binding config from an Identity.
-func BuildUserConfig(identity channel.Identity) map[string]any {
+func buildUserConfig(identity channel.Identity) map[string]any {
 	result := map[string]any{}
 	if value := strings.TrimSpace(identity.Attribute("open_id")); value != "" {
 		result["open_id"] = value

@@ -8,9 +8,9 @@ import (
 
 func TestResolveTargetFromUserConfig(t *testing.T) {
 	t.Parallel()
-	registerTestChannel()
+	reg := newTestConfigRegistry()
 
-	target, err := channel.ResolveTargetFromUserConfig(testChannelType, map[string]any{
+	target, err := reg.ResolveTargetFromUserConfig(testChannelType, map[string]any{
 		"target": "alice",
 	})
 	if err != nil {
@@ -23,8 +23,9 @@ func TestResolveTargetFromUserConfig(t *testing.T) {
 
 func TestResolveTargetFromUserConfigUnsupported(t *testing.T) {
 	t.Parallel()
+	reg := channel.NewRegistry()
 
-	_, err := channel.ResolveTargetFromUserConfig("unknown", map[string]any{})
+	_, err := reg.ResolveTargetFromUserConfig("unknown", map[string]any{})
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}

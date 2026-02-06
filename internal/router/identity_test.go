@@ -119,7 +119,7 @@ func TestIdentityResolverAllowGuestCreatesContact(t *testing.T) {
 	store := &fakeIdentityConfigStore{}
 	contactsService := &fakeIdentityContactService{}
 	policyService := &fakePolicyServiceIdentity{decision: policy.Decision{AllowGuest: true}}
-	resolver := NewIdentityResolver(slog.Default(), store, contactsService, policyService, nil, "禁止访问", "授权成功")
+	resolver := NewIdentityResolver(slog.Default(), nil, store, contactsService, policyService, nil, "禁止访问", "授权成功")
 
 	msg := channel.InboundMessage{
 		BotID:       "bot-1",
@@ -152,7 +152,7 @@ func TestIdentityResolverPreauthKeyAllowsGuest(t *testing.T) {
 			ExpiresAt: time.Now().UTC().Add(1 * time.Hour),
 		},
 	}
-	resolver := NewIdentityResolver(slog.Default(), store, contactsService, policyService, preauthService, "禁止访问", "授权成功")
+	resolver := NewIdentityResolver(slog.Default(), nil, store, contactsService, policyService, preauthService, "禁止访问", "授权成功")
 
 	msg := channel.InboundMessage{
 		BotID:       "bot-1",
@@ -188,7 +188,7 @@ func TestIdentityResolverPreauthKeyExpired(t *testing.T) {
 			ExpiresAt: time.Now().UTC().Add(-1 * time.Hour),
 		},
 	}
-	resolver := NewIdentityResolver(slog.Default(), store, contactsService, policyService, preauthService, "禁止访问", "授权成功")
+	resolver := NewIdentityResolver(slog.Default(), nil, store, contactsService, policyService, preauthService, "禁止访问", "授权成功")
 
 	msg := channel.InboundMessage{
 		BotID:       "bot-1",
