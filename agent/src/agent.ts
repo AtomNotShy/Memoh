@@ -1,5 +1,5 @@
 import { generateText, ImagePart, LanguageModelUsage, ModelMessage, stepCountIs, streamText, UserModelMessage } from 'ai'
-import { AgentInput, AgentParams, allActions, Schedule } from './types'
+import { AgentInput, AgentParams, allActions, HTTPMCPConnection, MCPConnection, Schedule } from './types'
 import { system, schedule, user, subagentSystem } from './prompts'
 import { AuthFetcher } from './index'
 import { createModel } from './model'
@@ -30,8 +30,21 @@ export const createAgent = ({
     contactId: '',
     contactName: '',
   },
+  auth,
 }: AgentParams, fetch: AuthFetcher) => {
   const model = createModel(modelConfig)
+
+  const getDefaultMCPConnections = (): MCPConnection[] => {
+    const fs: HTTPMCPConnection = {
+      type: 'http',
+      name: 'fs',
+      url: `http://localhost:8080/bots/${identity.botId}/container/fs`,
+      headers: {
+        'Authorization': `Bearer ${auth.bearer}`,
+      },
+    }
+    return [fs]
+  }
   
   const generateSystemPrompt = () => {
     return system({
@@ -51,7 +64,12 @@ export const createAgent = ({
       brave,
       identity,
     })
-    const { tools: mcpTools, close: closeMCP } = await getMCPTools(mcpConnections)
+    const defaultMCPConnections = getDefaultMCPConnections()
+    console.log('defaultMCPConnections', defaultMCPConnections)
+    const { tools: mcpTools, close: closeMCP } = await getMCPTools([
+      ...defaultMCPConnections,
+      ...mcpConnections,
+    ])
     Object.assign(tools, mcpTools)
     return {
       tools,

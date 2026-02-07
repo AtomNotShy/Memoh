@@ -156,20 +156,19 @@ func (r *Resolver) resolve(ctx context.Context, req ChatRequest) (resolvedContex
 
 	skipHistory := req.MaxContextLoadTime < 0
 
+	botSettings, err := r.loadBotSettings(ctx, req.BotID)
+	if err != nil {
+		return resolvedContext{}, err
+	}
 	userSettings, err := r.loadUserSettings(ctx, req.UserID)
 	if err != nil {
 		return resolvedContext{}, err
 	}
-	chatModel, provider, err := r.selectChatModel(ctx, req, userSettings)
+	chatModel, provider, err := r.selectChatModel(ctx, req, botSettings, userSettings)
 	if err != nil {
 		return resolvedContext{}, err
 	}
 	clientType, err := normalizeClientType(provider.ClientType)
-	if err != nil {
-		return resolvedContext{}, err
-	}
-
-	botSettings, err := r.loadBotSettings(ctx, req.BotID)
 	if err != nil {
 		return resolvedContext{}, err
 	}
@@ -312,6 +311,10 @@ func (r *Resolver) TriggerSchedule(ctx context.Context, botID string, payload sc
 func (r *Resolver) StreamChat(ctx context.Context, req ChatRequest) (<-chan StreamChunk, <-chan error) {
 	chunkCh := make(chan StreamChunk)
 	errCh := make(chan error, 1)
+	r.logger.Info("gateway stream start",
+		slog.String("bot_id", req.BotID),
+		slog.String("session_id", req.SessionID),
+	)
 
 	go func() {
 		defer close(chunkCh)
@@ -319,10 +322,20 @@ func (r *Resolver) StreamChat(ctx context.Context, req ChatRequest) (<-chan Stre
 
 		rc, err := r.resolve(ctx, req)
 		if err != nil {
+			r.logger.Error("gateway stream resolve failed",
+				slog.String("bot_id", req.BotID),
+				slog.String("session_id", req.SessionID),
+				slog.Any("error", err),
+			)
 			errCh <- err
 			return
 		}
 		if err := r.streamChat(ctx, rc.payload, req.BotID, req.SessionID, req.Query, req.Token, chunkCh); err != nil {
+			r.logger.Error("gateway stream request failed",
+				slog.String("bot_id", req.BotID),
+				slog.String("session_id", req.SessionID),
+				slog.Any("error", err),
+			)
 			errCh <- err
 		}
 	}()
@@ -417,7 +430,9 @@ func (r *Resolver) streamChat(ctx context.Context, payload gatewayRequest, botID
 	if err != nil {
 		return err
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, r.gatewayBaseURL+"/chat/stream", bytes.NewReader(body))
+	url := r.gatewayBaseURL + "/chat/stream"
+	r.logger.Info("gateway stream request", slog.String("url", url), slog.String("body_prefix", truncate(string(body), 200)))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -429,12 +444,14 @@ func (r *Resolver) streamChat(ctx context.Context, payload gatewayRequest, botID
 
 	resp, err := r.streamingClient.Do(httpReq)
 	if err != nil {
+		r.logger.Error("gateway stream connect failed", slog.String("url", url), slog.Any("error", err))
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		errBody, _ := io.ReadAll(resp.Body)
+		r.logger.Error("gateway stream error", slog.String("url", url), slog.Int("status", resp.StatusCode), slog.String("body_prefix", truncate(string(errBody), 300)))
 		return fmt.Errorf("agent gateway error: %s", strings.TrimSpace(string(errBody)))
 	}
 
@@ -653,20 +670,24 @@ func (r *Resolver) storeMemory(ctx context.Context, botID, sessionID, query stri
 
 // --- model selection ---
 
-func (r *Resolver) selectChatModel(ctx context.Context, req ChatRequest, us resolvedUserSettings) (models.GetResponse, sqlc.LlmProvider, error) {
+func (r *Resolver) selectChatModel(ctx context.Context, req ChatRequest, botSettings settings.Settings, us resolvedUserSettings) (models.GetResponse, sqlc.LlmProvider, error) {
 	if r.modelsService == nil {
 		return models.GetResponse{}, sqlc.LlmProvider{}, fmt.Errorf("models service not configured")
 	}
 	modelID := strings.TrimSpace(req.Model)
 	providerFilter := strings.TrimSpace(req.Provider)
 
-	// Priority: request model > user settings. No implicit fallback.
-	if modelID == "" && providerFilter == "" && strings.TrimSpace(us.ChatModelID) != "" {
-		modelID = us.ChatModelID
+	// Priority: request model > bot settings > user settings.
+	if modelID == "" && providerFilter == "" {
+		if value := strings.TrimSpace(botSettings.ChatModelID); value != "" {
+			modelID = value
+		} else if value := strings.TrimSpace(us.ChatModelID); value != "" {
+			modelID = value
+		}
 	}
 
 	if modelID == "" {
-		return models.GetResponse{}, sqlc.LlmProvider{}, fmt.Errorf("chat model not configured: specify model in request or user settings")
+		return models.GetResponse{}, sqlc.LlmProvider{}, fmt.Errorf("chat model not configured: specify model in request or bot settings")
 	}
 
 	if providerFilter == "" {

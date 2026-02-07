@@ -33,6 +33,9 @@ export const chatModule = new Elysia({ prefix: '/chat' })
       allowedActions: body.allowedActions,
       identity: body.identity,
       mcpConnections: body.mcpConnections,
+      auth: {
+        bearer: bearer!,
+      },
     }, authFetcher)
     return ask({
       query: body.query,
@@ -57,6 +60,9 @@ export const chatModule = new Elysia({ prefix: '/chat' })
         allowedActions: body.allowedActions,
         identity: body.identity,
         mcpConnections: body.mcpConnections,
+        auth: {
+          bearer: bearer!,
+        },
       }, authFetcher)
       for await (const action of stream({
         query: body.query,
@@ -87,6 +93,9 @@ export const chatModule = new Elysia({ prefix: '/chat' })
       currentChannel: body.currentChannel,
       identity: body.identity,
       mcpConnections: body.mcpConnections,
+      auth: {
+        bearer: bearer!,
+      },
     }, authFetcher)
     return triggerSchedule({
       schedule: body.schedule,

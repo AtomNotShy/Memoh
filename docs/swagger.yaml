@@ -1546,6 +1546,153 @@ paths:
       summary: Create and start MCP container for bot
       tags:
       - containerd
+  /bots/{bot_id}/container/fs:
+    post:
+      description: |-
+        Forwards MCP JSON-RPC requests to the MCP server inside the container.
+        Required:
+        - container task is running
+        - container has data mount (default /data) bound to <data_root>/users/<user_id>
+        - container image contains the "mcp" binary
+        Auth: Bearer JWT is used to determine user_id (sub or user_id).
+        Paths must be relative (no leading slash) and must not contain "..".
+
+        Example: tools/list
+        {"jsonrpc":"2.0","id":1,"method":"tools/list"}
+
+        Example: tools/call (fs.read)
+        {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"fs.read","arguments":{"path":"notes.txt"}}}
+      parameters:
+      - description: Bearer <token>
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      - description: Bot ID
+        in: path
+        name: bot_id
+        required: true
+        type: string
+      - description: JSON-RPC request
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: 'JSON-RPC response: {jsonrpc,id,result|error}'
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: MCP filesystem tools (JSON-RPC)
+      tags:
+      - containerd
+  /bots/{bot_id}/container/skills:
+    delete:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: bot_id
+        required: true
+        type: string
+      - description: Delete skills payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.SkillsDeleteRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.skillsOpResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Delete skills from container
+      tags:
+      - containerd
+    get:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: bot_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.SkillsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: List skills from container
+      tags:
+      - containerd
+    post:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: bot_id
+        required: true
+        type: string
+      - description: Skills payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.SkillsUpsertRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.skillsOpResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Upload skills into container
+      tags:
+      - containerd
   /bots/{bot_id}/container/snapshots:
     get:
       parameters:
@@ -2942,137 +3089,6 @@ paths:
       summary: Get channel capabilities and schemas
       tags:
       - channel
-  /container/fs/{id}:
-    post:
-      description: |-
-        Forwards MCP JSON-RPC requests to the MCP server inside the container.
-        Required:
-        - container task is running
-        - container has data mount (default /data) bound to <data_root>/users/<user_id>
-        - container image contains the "mcp" binary
-        Auth: Bearer JWT is used to determine user_id (sub or user_id).
-        Paths must be relative (no leading slash) and must not contain "..".
-
-        Example: tools/list
-        {"jsonrpc":"2.0","id":1,"method":"tools/list"}
-
-        Example: tools/call (fs.read)
-        {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"fs.read","arguments":{"path":"notes.txt"}}}
-      parameters:
-      - description: Bearer <token>
-        in: header
-        name: Authorization
-        required: true
-        type: string
-      - description: Container ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: JSON-RPC request
-        in: body
-        name: payload
-        required: true
-        schema:
-          type: object
-      responses:
-        "200":
-          description: 'JSON-RPC response: {jsonrpc,id,result|error}'
-          schema:
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: MCP filesystem tools (JSON-RPC)
-      tags:
-      - containerd
-  /container/skills:
-    delete:
-      parameters:
-      - description: Delete skills payload
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/handlers.SkillsDeleteRequest'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/handlers.skillsOpResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Delete skills from container
-      tags:
-      - containerd
-    get:
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/handlers.SkillsResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: List skills from container
-      tags:
-      - containerd
-    post:
-      parameters:
-      - description: Skills payload
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/handlers.SkillsUpsertRequest'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/handlers.skillsOpResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Upload skills into container
-      tags:
-      - containerd
   /embeddings:
     post:
       description: Create text or multimodal embeddings

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os/exec"
 	"runtime"
@@ -38,13 +39,13 @@ import (
 // @Description {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"fs.read","arguments":{"path":"notes.txt"}}}
 // @Tags containerd
 // @Param Authorization header string true "Bearer <token>"
-// @Param id path string true "Container ID"
+// @Param bot_id path string true "Bot ID"
 // @Param payload body object true "JSON-RPC request"
 // @Success 200 {object} object "JSON-RPC response: {jsonrpc,id,result|error}"
 // @Failure 400 {object} ErrorResponse
 // @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /container/fs/{id} [post]
+// @Router /bots/{bot_id}/container/fs [post]
 func (h *ContainerdHandler) HandleMCPFS(c echo.Context) error {
 	botID, err := h.requireBotAccess(c)
 	if err != nil {
@@ -69,32 +70,39 @@ func (h *ContainerdHandler) HandleMCPFS(c echo.Context) error {
 	}
 
 	if err := h.validateMCPContainer(c.Request().Context(), containerID, botID); err != nil {
-		return err
+		h.logger.Error("mcp fs validate failed", slog.Any("error", err), slog.String("bot_id", botID), slog.String("container_id", containerID))
+		return c.JSON(http.StatusOK, mcptools.JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error:   &mcptools.JSONRPCError{Code: -32603, Message: err.Error()},
+		})
 	}
 	if err := h.ensureTaskRunning(c.Request().Context(), containerID); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		h.logger.Error("mcp fs ensure task failed", slog.Any("error", err), slog.String("bot_id", botID), slog.String("container_id", containerID))
+		return c.JSON(http.StatusOK, mcptools.JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error:   &mcptools.JSONRPCError{Code: -32603, Message: err.Error()},
+		})
 	}
 
-	switch req.Method {
-	case "tools/list":
-		payload, err := h.callMCPServer(c.Request().Context(), containerID, req)
-		if err != nil {
-			return err
-		}
-		return c.JSON(http.StatusOK, payload)
-	case "tools/call":
-		payload, err := h.callMCPServer(c.Request().Context(), containerID, req)
-		if err != nil {
-			return err
-		}
-		return c.JSON(http.StatusOK, payload)
-	default:
+	if strings.TrimSpace(req.Method) == "" {
 		return c.JSON(http.StatusOK, mcptools.JSONRPCResponse{
 			JSONRPC: "2.0",
 			ID:      req.ID,
 			Error:   &mcptools.JSONRPCError{Code: -32601, Message: "method not found"},
 		})
 	}
+	payload, err := h.callMCPServer(c.Request().Context(), containerID, req)
+	if err != nil {
+		h.logger.Error("mcp fs call failed", slog.Any("error", err), slog.String("method", req.Method), slog.String("bot_id", botID), slog.String("container_id", containerID))
+		return c.JSON(http.StatusOK, mcptools.JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error:   &mcptools.JSONRPCError{Code: -32603, Message: err.Error()},
+		})
+	}
+	return c.JSON(http.StatusOK, payload)
 }
 
 func (h *ContainerdHandler) validateMCPContainer(ctx context.Context, containerID, botID string) error {
@@ -198,10 +206,12 @@ func (h *ContainerdHandler) startContainerdMCPSession(ctx context.Context, conta
 		closed:  make(chan struct{}),
 	}
 
+	h.startMCPStderrLogger(execSession.Stderr, containerID)
 	go sess.readLoop()
 	go func() {
 		_, err := execSession.Wait()
 		if err != nil {
+			h.logger.Error("mcp session exited", slog.Any("error", err), slog.String("container_id", containerID))
 			sess.closeWithError(err)
 		} else {
 			sess.closeWithError(io.EOF)
@@ -263,9 +273,11 @@ func (h *ContainerdHandler) startLimaMCPSession(containerID string) (*mcpSession
 		closed:  make(chan struct{}),
 	}
 
+	h.startMCPStderrLogger(stderr, containerID)
 	go sess.readLoop()
 	go func() {
 		if err := cmd.Wait(); err != nil {
+			h.logger.Error("mcp session exited", slog.Any("error", err), slog.String("container_id", containerID))
 			sess.closeWithError(err)
 		} else {
 			sess.closeWithError(io.EOF)
@@ -295,6 +307,26 @@ func (s *mcpSession) closeWithError(err error) {
 			s.onClose()
 		}
 	})
+}
+
+func (h *ContainerdHandler) startMCPStderrLogger(stderr io.ReadCloser, containerID string) {
+	if stderr == nil {
+		return
+	}
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" {
+				continue
+			}
+			h.logger.Warn("mcp stderr", slog.String("container_id", containerID), slog.String("message", line))
+		}
+		if err := scanner.Err(); err != nil {
+			h.logger.Error("mcp stderr read failed", slog.Any("error", err), slog.String("container_id", containerID))
+		}
+	}()
 }
 
 func (s *mcpSession) readLoop() {

@@ -113,6 +113,11 @@ func (h *ChatHandler) StreamChat(c echo.Context) error {
 		return err
 	}
 	botID := strings.TrimSpace(c.Param("bot_id"))
+	h.logger.Info("chat stream request received",
+		slog.String("bot_id", botID),
+		slog.String("session_id", c.QueryParam("session_id")),
+		slog.String("user_id", userID),
+	)
 	if botID == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
 	}
@@ -185,6 +190,7 @@ func (h *ChatHandler) StreamChat(c echo.Context) error {
 
 		case err := <-errChan:
 			if err != nil {
+				h.logger.Error("chat stream failed", slog.Any("error", err))
 				// Send error as SSE event
 				errData := map[string]string{"error": err.Error()}
 				data, _ := json.Marshal(errData)

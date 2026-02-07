@@ -303,7 +303,7 @@ export const registerBotCommands = (program: Command) => {
       while (true) {
         const line = (await rl.question(chalk.cyan('> '))).trim()
         if (!line) {
-          if (input.readableEnded) break
+          if (!input.isTTY && input.readableEnded) break
           continue
         }
         if (line.toLowerCase() === 'exit') {

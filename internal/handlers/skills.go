@@ -41,11 +41,12 @@ type skillsOpResponse struct {
 // ListSkills godoc
 // @Summary List skills from container
 // @Tags containerd
+// @Param bot_id path string true "Bot ID"
 // @Success 200 {object} SkillsResponse
 // @Failure 400 {object} ErrorResponse
 // @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /container/skills [get]
+// @Router /bots/{bot_id}/container/skills [get]
 func (h *ContainerdHandler) ListSkills(c echo.Context) error {
 	botID, err := h.requireBotAccess(c)
 	if err != nil {
@@ -98,12 +99,13 @@ func (h *ContainerdHandler) ListSkills(c echo.Context) error {
 // UpsertSkills godoc
 // @Summary Upload skills into container
 // @Tags containerd
+// @Param bot_id path string true "Bot ID"
 // @Param payload body SkillsUpsertRequest true "Skills payload"
 // @Success 200 {object} skillsOpResponse
 // @Failure 400 {object} ErrorResponse
 // @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /container/skills [post]
+// @Router /bots/{bot_id}/container/skills [post]
 func (h *ContainerdHandler) UpsertSkills(c echo.Context) error {
 	botID, err := h.requireBotAccess(c)
 	if err != nil {
@@ -149,12 +151,13 @@ func (h *ContainerdHandler) UpsertSkills(c echo.Context) error {
 // DeleteSkills godoc
 // @Summary Delete skills from container
 // @Tags containerd
+// @Param bot_id path string true "Bot ID"
 // @Param payload body SkillsDeleteRequest true "Delete skills payload"
 // @Success 200 {object} skillsOpResponse
 // @Failure 400 {object} ErrorResponse
 // @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /container/skills [delete]
+// @Router /bots/{bot_id}/container/skills [delete]
 func (h *ContainerdHandler) DeleteSkills(c echo.Context) error {
 	botID, err := h.requireBotAccess(c)
 	if err != nil {

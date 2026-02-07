@@ -18,6 +18,10 @@ export interface IdentityContext {
   sessionToken?: string
 }
 
+export interface AgentAuthContext {
+  bearer: string
+}
+
 export enum AgentAction {
   Web = 'web',
   Message = 'message',
@@ -45,6 +49,7 @@ export interface AgentParams {
   currentChannel?: string
   mcpConnections?: MCPConnection[]
   identity?: IdentityContext
+  auth: AgentAuthContext
 }
 
 export interface AgentInput {
