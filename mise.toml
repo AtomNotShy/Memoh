@@ -10,7 +10,7 @@ bun = "latest"
 # pnpm for workspace management
 pnpm = "10"
 # Lima for macOS
-lima = { version = "latest", platform = "darwin" }
+lima = { version = "system", platform = "darwin" }
 
 [task_config]
 dir = "{{cwd}}"
@@ -90,7 +90,6 @@ run = "scripts/compile-mcp.sh"
 description = "Start development environment"
 depends = [
   "//:swagger-generate",
-  "//:sqlc-generate",
   "//agent:dev",
   "//cmd/agent:start",
   "//packages/web:dev",
@@ -99,6 +98,7 @@ depends = [
 [tasks.setup]
 description = "Setup development environment"
 depends = [
+  "//:sqlc-generate",
   "//:db-up",
   "//:pnpm-install",
   "//:go-install",

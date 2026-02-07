@@ -1,22 +1,11 @@
+// Package local implements the CLI and Web channel adapters for local development.
 package local
 
 import "github.com/memohai/memoh/internal/channel"
 
-func init() {
-	channel.MustRegisterChannel(channel.ChannelDescriptor{
-		Type:                channel.ChannelCLI,
-		DisplayName:         "CLI",
-		NormalizeConfig:     normalizeEmpty,
-		NormalizeUserConfig: normalizeEmpty,
-	})
-	channel.MustRegisterChannel(channel.ChannelDescriptor{
-		Type:                channel.ChannelWeb,
-		DisplayName:         "Web",
-		NormalizeConfig:     normalizeEmpty,
-		NormalizeUserConfig: normalizeEmpty,
-	})
-}
-
-func normalizeEmpty(map[string]interface{}) (map[string]interface{}, error) {
-	return map[string]interface{}{}, nil
-}
+const (
+	// CLIType is the registered ChannelType for the CLI adapter.
+	CLIType channel.ChannelType = "cli"
+	// WebType is the registered ChannelType for the Web adapter.
+	WebType channel.ChannelType = "web"
+)

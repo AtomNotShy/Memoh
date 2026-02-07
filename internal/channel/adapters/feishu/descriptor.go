@@ -1,12 +1,7 @@
+// Package feishu implements the Feishu (Lark) channel adapter.
 package feishu
 
 import "github.com/memohai/memoh/internal/channel"
 
-func init() {
-	channel.MustRegisterChannel(channel.ChannelDescriptor{
-		Type:                channel.ChannelFeishu,
-		DisplayName:         "Feishu",
-		NormalizeConfig:     channel.NormalizeFeishuConfig,
-		NormalizeUserConfig: channel.NormalizeFeishuUserConfig,
-	})
-}
+// Type is the registered ChannelType identifier for Feishu.
+const Type channel.ChannelType = "feishu"

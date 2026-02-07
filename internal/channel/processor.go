@@ -2,7 +2,7 @@ package channel
 
 import "context"
 
-// InboundProcessor 负责处理入站消息并产出可发送的响应。
+// InboundProcessor handles inbound messages and replies through the given sender.
 type InboundProcessor interface {
-	HandleInbound(ctx context.Context, cfg ChannelConfig, msg InboundMessage) (*OutboundMessage, error)
+	HandleInbound(ctx context.Context, cfg ChannelConfig, msg InboundMessage, sender ReplySender) error
 }

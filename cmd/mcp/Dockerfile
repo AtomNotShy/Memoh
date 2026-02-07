@@ -13,5 +13,5 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH:-amd64} \
 FROM alpine:latest
 RUN apk add --no-cache grep
 WORKDIR /app
-COPY --from=build /out/mcp /app/mcp
-ENTRYPOINT ["/app/mcp"]
+COPY --from=build /out/mcp /opt/mcp
+ENTRYPOINT ["/bin/sh","-lc","bootstrap(){ [ -e /app/mcp ] || { mkdir -p /app; [ -f /opt/mcp ] && cp -a /opt/mcp /app/mcp 2>/dev/null || true; }; }; bootstrap; if [ -x /app/mcp ]; then exec /app/mcp \"$@\"; fi; exec /opt/mcp \"$@\"","--"]

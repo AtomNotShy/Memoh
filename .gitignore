@@ -98,3 +98,4 @@ memory.db
 config.toml
 
 .workdocs/
+data

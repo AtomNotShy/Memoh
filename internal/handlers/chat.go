@@ -81,6 +81,12 @@ func (h *ChatHandler) Chat(c echo.Context) error {
 	req.SessionID = sessionID
 	req.Token = c.Request().Header.Get("Authorization")
 	req.UserID = userID
+	if strings.TrimSpace(req.ContactID) == "" {
+		req.ContactID = userID
+	}
+	if strings.TrimSpace(req.ContactName) == "" {
+		req.ContactName = "User"
+	}
 
 	resp, err := h.resolver.Chat(c.Request().Context(), req)
 	if err != nil {
@@ -107,6 +113,11 @@ func (h *ChatHandler) StreamChat(c echo.Context) error {
 		return err
 	}
 	botID := strings.TrimSpace(c.Param("bot_id"))
+	h.logger.Info("chat stream request received",
+		slog.String("bot_id", botID),
+		slog.String("session_id", c.QueryParam("session_id")),
+		slog.String("user_id", userID),
+	)
 	if botID == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
 	}
@@ -130,6 +141,12 @@ func (h *ChatHandler) StreamChat(c echo.Context) error {
 	req.SessionID = sessionID
 	req.Token = c.Request().Header.Get("Authorization")
 	req.UserID = userID
+	if strings.TrimSpace(req.ContactID) == "" {
+		req.ContactID = userID
+	}
+	if strings.TrimSpace(req.ContactName) == "" {
+		req.ContactName = "User"
+	}
 
 	// Set headers for SSE
 	c.Response().Header().Set(echo.HeaderContentType, "text/event-stream")
@@ -173,6 +190,7 @@ func (h *ChatHandler) StreamChat(c echo.Context) error {
 
 		case err := <-errChan:
 			if err != nil {
+				h.logger.Error("chat stream failed", slog.Any("error", err))
 				// Send error as SSE event
 				errData := map[string]string{"error": err.Error()}
 				data, _ := json.Marshal(errData)

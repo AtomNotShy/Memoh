@@ -2,6 +2,7 @@ package channel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -9,72 +10,149 @@ import (
 	"time"
 )
 
-type ConfigStore interface {
-	ResolveEffectiveConfig(ctx context.Context, botID string, channelType ChannelType) (ChannelConfig, error)
-	GetUserConfig(ctx context.Context, actorUserID string, channelType ChannelType) (ChannelUserBinding, error)
-	UpsertUserConfig(ctx context.Context, actorUserID string, channelType ChannelType, req UpsertUserConfigRequest) (ChannelUserBinding, error)
+// ConfigLister lists channel configs for periodic refresh. Used by connection lifecycle.
+type ConfigLister interface {
 	ListConfigsByType(ctx context.Context, channelType ChannelType) ([]ChannelConfig, error)
-	ResolveUserBinding(ctx context.Context, channelType ChannelType, criteria BindingCriteria) (string, error)
-	GetChannelSession(ctx context.Context, sessionID string) (ChannelSession, error)
-	UpsertChannelSession(ctx context.Context, sessionID string, botID string, channelConfigID string, userID string, contactID string, platform string) error
 }
 
-// Middleware 消息处理中间件定义
+// ConfigResolver resolves effective configs and user bindings. Used for outbound sending.
+type ConfigResolver interface {
+	ResolveEffectiveConfig(ctx context.Context, botID string, channelType ChannelType) (ChannelConfig, error)
+	GetUserConfig(ctx context.Context, actorUserID string, channelType ChannelType) (ChannelUserBinding, error)
+}
+
+// BindingStore resolves user-channel bindings. Used by identity resolution.
+type BindingStore interface {
+	ResolveUserBinding(ctx context.Context, channelType ChannelType, criteria BindingCriteria) (string, error)
+}
+
+// SessionStore manages channel session lifecycle. Used by identity resolution.
+type SessionStore interface {
+	GetChannelSession(ctx context.Context, sessionID string) (ChannelSession, error)
+	UpsertChannelSession(ctx context.Context, sessionID string, botID string, channelConfigID string, userID string, contactID string, platform string, replyTarget string, threadID string, metadata map[string]any) error
+	ListSessionsByBotPlatform(ctx context.Context, botID string, platform string) ([]ChannelSession, error)
+}
+
+// ConfigStore is the full persistence interface. Components should depend on smaller
+// interfaces above; ConfigStore exists as a convenience for wiring.
+type ConfigStore interface {
+	ConfigLister
+	ConfigResolver
+	BindingStore
+	SessionStore
+	UpsertUserConfig(ctx context.Context, actorUserID string, channelType ChannelType, req UpsertUserConfigRequest) (ChannelUserBinding, error)
+}
+
+// Middleware wraps an InboundHandler to add cross-cutting behavior.
 type Middleware func(next InboundHandler) InboundHandler
 
+// ManagerStore is the minimal persistence interface required by Manager.
+type ManagerStore interface {
+	ConfigLister
+	ConfigResolver
+}
+
+// Manager coordinates channel adapters, connection lifecycle, and message dispatch.
+// Connection lifecycle lives in connection.go, inbound dispatch in inbound.go,
+// and outbound pipeline in outbound.go.
 type Manager struct {
-	service         ConfigStore
+	registry        *Registry
+	service         ManagerStore
 	processor       InboundProcessor
-	adapters        map[ChannelType]Adapter
 	refreshInterval time.Duration
 	logger          *slog.Logger
 	middlewares     []Middleware
 
-	mu      sync.Mutex
-	runners map[string]*runningAdapter
+	inboundQueue   chan inboundTask
+	inboundWorkers int
+	inboundOnce    sync.Once
+	inboundCtx     context.Context
+	inboundCancel  context.CancelFunc
+	mu             sync.Mutex
+	connections    map[string]*connectionEntry
 }
 
-type runningAdapter struct {
-	adapter      Adapter
-	config       ChannelConfig
-	stop         func()
-	supportsStop bool
-}
-
-func NewManager(log *slog.Logger, service ConfigStore, processor InboundProcessor) *Manager {
+// NewManager creates a Manager with the given logger, registry, config store, and inbound processor.
+func NewManager(log *slog.Logger, registry *Registry, service ManagerStore, processor InboundProcessor) *Manager {
 	if log == nil {
 		log = slog.Default()
 	}
+	if registry == nil {
+		registry = NewRegistry()
+	}
 	return &Manager{
+		registry:        registry,
 		service:         service,
 		processor:       processor,
-		adapters:        map[ChannelType]Adapter{},
 		refreshInterval: 30 * time.Second,
-		runners:         map[string]*runningAdapter{},
+		connections:     map[string]*connectionEntry{},
 		logger:          log.With(slog.String("component", "channel")),
 		middlewares:     []Middleware{},
+		inboundQueue:    make(chan inboundTask, 256),
+		inboundWorkers:  4,
 	}
 }
 
-// Use 注册中间件
+// Registry returns the adapter registry used by this manager.
+func (m *Manager) Registry() *Registry {
+	return m.registry
+}
+
+// Use appends middleware to the inbound processing chain.
 func (m *Manager) Use(mw ...Middleware) {
 	m.middlewares = append(m.middlewares, mw...)
 }
 
+// RegisterAdapter adds an adapter to the registry and logs the registration.
 func (m *Manager) RegisterAdapter(adapter Adapter) {
 	if adapter == nil {
 		return
 	}
-	m.adapters[adapter.Type()] = adapter
+	if err := m.registry.Register(adapter); err != nil {
+		if m.logger != nil {
+			m.logger.Warn("adapter registration failed", slog.String("channel", adapter.Type().String()), slog.Any("error", err))
+		}
+		return
+	}
 	if m.logger != nil {
 		m.logger.Info("adapter registered", slog.String("channel", adapter.Type().String()))
 	}
 }
 
+// AddAdapter registers an adapter and triggers an immediate refresh for hot-plug support.
+func (m *Manager) AddAdapter(ctx context.Context, adapter Adapter) {
+	m.RegisterAdapter(adapter)
+	if ctx != nil {
+		m.refresh(ctx)
+	}
+}
+
+// RemoveAdapter unregisters an adapter and stops all its active connections.
+func (m *Manager) RemoveAdapter(ctx context.Context, channelType ChannelType) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	m.mu.Lock()
+	for id, entry := range m.connections {
+		if entry != nil && entry.config.ChannelType == channelType {
+			if entry.connection != nil {
+				if err := entry.connection.Stop(ctx); err != nil && !errors.Is(err, ErrStopNotSupported) && m.logger != nil {
+					m.logger.Warn("adapter stop failed", slog.String("config_id", id), slog.Any("error", err))
+				}
+			}
+			delete(m.connections, id)
+		}
+	}
+	m.mu.Unlock()
+	m.registry.Unregister(channelType)
+}
+
+// Start begins the periodic config refresh loop and inbound worker pool.
 func (m *Manager) Start(ctx context.Context) {
 	if m.logger != nil {
 		m.logger.Info("manager start")
 	}
+	m.startInboundWorkers(ctx)
 	go func() {
 		m.refresh(ctx)
 		ticker := time.NewTicker(m.refreshInterval)
@@ -85,7 +163,7 @@ func (m *Manager) Start(ctx context.Context) {
 				if m.logger != nil {
 					m.logger.Info("manager stop")
 				}
-				m.stopAll()
+				m.stopAll(ctx)
 				return
 			case <-ticker.C:
 				m.refresh(ctx)
@@ -94,23 +172,24 @@ func (m *Manager) Start(ctx context.Context) {
 	}()
 }
 
+// Send delivers an outbound message to the specified channel, resolving target and config automatically.
 func (m *Manager) Send(ctx context.Context, botID string, channelType ChannelType, req SendRequest) error {
 	if m.service == nil {
 		return fmt.Errorf("channel manager not configured")
 	}
-	adapter := m.adapters[channelType]
-	if adapter == nil {
+	sender, ok := m.registry.GetSender(channelType)
+	if !ok {
 		return fmt.Errorf("unsupported channel type: %s", channelType)
 	}
 	config, err := m.service.ResolveEffectiveConfig(ctx, botID, channelType)
 	if err != nil {
 		return err
 	}
-	target := strings.TrimSpace(req.To)
+	target := strings.TrimSpace(req.Target)
 	if target == "" {
-		targetUserID := strings.TrimSpace(req.ToUserID)
+		targetUserID := strings.TrimSpace(req.UserID)
 		if targetUserID == "" {
-			return fmt.Errorf("target user_id is required")
+			return fmt.Errorf("target or user_id is required")
 		}
 		userCfg, err := m.service.GetUserConfig(ctx, targetUserID, channelType)
 		if err != nil {
@@ -119,235 +198,44 @@ func (m *Manager) Send(ctx context.Context, botID string, channelType ChannelTyp
 			}
 			return fmt.Errorf("channel binding required")
 		}
-		target, err = resolveTargetFromUserConfig(channelType, userCfg.Config)
+		target, err = m.registry.ResolveTargetFromUserConfig(channelType, userCfg.Config)
 		if err != nil {
 			return err
 		}
 	}
-	text := strings.TrimSpace(req.Message)
-	if text == "" {
+	if normalized, ok := m.registry.NormalizeTarget(channelType, target); ok {
+		target = normalized
+	}
+	if req.Message.IsEmpty() {
 		return fmt.Errorf("message is required")
 	}
 	if m.logger != nil {
 		m.logger.Info("send outbound", slog.String("channel", channelType.String()), slog.String("bot_id", botID))
 	}
-	err = adapter.Send(ctx, config, OutboundMessage{
-		To:   target,
-		Text: text,
-	})
-	if err != nil && m.logger != nil {
-		m.logger.Error("send outbound failed", slog.String("channel", channelType.String()), slog.String("bot_id", botID), slog.Any("error", err))
-	}
-	return err
-}
-
-func (m *Manager) HandleInbound(ctx context.Context, cfg ChannelConfig, msg InboundMessage) error {
-	return m.handleInbound(ctx, cfg, msg)
-}
-
-func (m *Manager) refresh(ctx context.Context) {
-	if m.service == nil {
-		return
-	}
-	configs := make([]ChannelConfig, 0)
-	for channelType := range m.adapters {
-		items, err := m.service.ListConfigsByType(ctx, channelType)
-		if err != nil {
-			if m.logger != nil {
-				m.logger.Error("list configs failed", slog.String("channel", channelType.String()), slog.Any("error", err))
-			}
-			continue
-		}
-		configs = append(configs, items...)
-	}
-	m.reconcile(ctx, configs)
-}
-
-func (m *Manager) reconcile(ctx context.Context, configs []ChannelConfig) {
-	active := map[string]ChannelConfig{}
-	for _, cfg := range configs {
-		if cfg.ID == "" {
-			continue
-		}
-		status := strings.ToLower(strings.TrimSpace(cfg.Status))
-		if status != "" && status != "active" && status != "verified" {
-			continue
-		}
-		active[cfg.ID] = cfg
-		if err := m.ensureRunner(ctx, cfg); err != nil {
-			if m.logger != nil {
-				m.logger.Error("adapter start failed", slog.String("channel", cfg.ChannelType.String()), slog.String("config_id", cfg.ID), slog.Any("error", err))
-			}
-		}
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for id, runner := range m.runners {
-		if _, ok := active[id]; ok {
-			continue
-		}
-		if runner.supportsStop && runner.stop != nil {
-			if m.logger != nil {
-				m.logger.Info("adapter stop", slog.String("channel", runner.config.ChannelType.String()), slog.String("config_id", id))
-			}
-			runner.stop()
-		}
-		delete(m.runners, id)
-	}
-}
-
-func (m *Manager) ensureRunner(ctx context.Context, cfg ChannelConfig) error {
-	m.mu.Lock()
-	runner := m.runners[cfg.ID]
-	m.mu.Unlock()
-
-	if runner != nil {
-		if runner.config.UpdatedAt.Equal(cfg.UpdatedAt) {
-			return nil
-		}
-		if !runner.supportsStop || runner.stop == nil {
-			if m.logger != nil {
-				m.logger.Warn("adapter restart skipped", slog.String("channel", cfg.ChannelType.String()), slog.String("config_id", cfg.ID))
-			}
-			return nil
-		}
-		if m.logger != nil {
-			m.logger.Info("adapter restart", slog.String("channel", cfg.ChannelType.String()), slog.String("config_id", cfg.ID))
-		}
-		runner.stop()
-		m.mu.Lock()
-		delete(m.runners, cfg.ID)
-		m.mu.Unlock()
-	}
-
-	adapter := m.adapters[cfg.ChannelType]
-	if adapter == nil {
-		return fmt.Errorf("unsupported channel type: %s", cfg.ChannelType)
-	}
-	if m.logger != nil {
-		m.logger.Info("adapter start", slog.String("channel", cfg.ChannelType.String()), slog.String("config_id", cfg.ID))
-	}
-
-	// 包装中间件
-	handler := m.handleInbound
-	for i := len(m.middlewares) - 1; i >= 0; i-- {
-		handler = m.middlewares[i](handler)
-	}
-
-	started, err := adapter.Start(ctx, cfg, handler)
+	policy := m.resolveOutboundPolicy(channelType)
+	outbound, err := buildOutboundMessages(OutboundMessage{
+		Target:  target,
+		Message: req.Message,
+	}, policy)
 	if err != nil {
 		return err
 	}
-	entry := &runningAdapter{
-		adapter:      adapter,
-		config:       cfg,
-		stop:         started.Stop,
-		supportsStop: started.SupportsStop,
+	for _, item := range outbound {
+		if err := m.sendWithConfig(ctx, sender, config, item, policy); err != nil {
+			if m.logger != nil {
+				m.logger.Error("send outbound failed", slog.String("channel", channelType.String()), slog.String("bot_id", botID), slog.Any("error", err))
+			}
+			return err
+		}
 	}
-	m.mu.Lock()
-	m.runners[cfg.ID] = entry
-	m.mu.Unlock()
 	return nil
 }
 
-func (m *Manager) stopAll() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for id, runner := range m.runners {
-		if runner.supportsStop && runner.stop != nil {
-			if m.logger != nil {
-				m.logger.Info("adapter stop", slog.String("channel", runner.config.ChannelType.String()), slog.String("config_id", id))
-			}
-			runner.stop()
-		}
-		delete(m.runners, id)
+// Shutdown cancels the inbound worker pool and stops all active connections.
+func (m *Manager) Shutdown(ctx context.Context) error {
+	if m.inboundCancel != nil {
+		m.inboundCancel()
 	}
-}
-
-func (m *Manager) handleInbound(ctx context.Context, cfg ChannelConfig, msg InboundMessage) error {
-	if m.processor == nil {
-		return fmt.Errorf("inbound processor not configured")
-	}
-	reply, err := m.processor.HandleInbound(ctx, cfg, msg)
-	if err != nil {
-		if m.logger != nil {
-			m.logger.Error("inbound processing failed", slog.String("channel", msg.Channel.String()), slog.Any("error", err))
-		}
-		return err
-	}
-	if reply == nil || strings.TrimSpace(reply.Text) == "" {
-		return nil
-	}
-	adapter := m.adapters[msg.Channel]
-	if adapter == nil {
-		return fmt.Errorf("unsupported channel type: %s", msg.Channel)
-	}
-	target := strings.TrimSpace(reply.To)
-	if target == "" {
-		return fmt.Errorf("reply target missing")
-	}
-	if m.logger != nil {
-		m.logger.Info("send reply", slog.String("channel", msg.Channel.String()))
-	}
-
-	// 增加简单的重试逻辑
-	var lastErr error
-	for i := 0; i < 3; i++ {
-		err = adapter.Send(ctx, cfg, OutboundMessage{
-			To:   target,
-			Text: reply.Text,
-		})
-		if err == nil {
-			return nil
-		}
-		lastErr = err
-		if m.logger != nil {
-			m.logger.Warn("send reply retry",
-				slog.String("channel", msg.Channel.String()),
-				slog.Int("attempt", i+1),
-				slog.Any("error", err))
-		}
-		time.Sleep(time.Duration(i+1) * 500 * time.Millisecond) // 指数退避
-	}
-
-	return fmt.Errorf("send reply failed after retries: %w", lastErr)
-}
-
-func resolveTargetFromUserConfig(channelType ChannelType, config map[string]interface{}) (string, error) {
-	switch channelType {
-	case ChannelTelegram:
-		userCfg, err := parseTelegramUserConfig(config)
-		if err != nil {
-			return "", err
-		}
-		if userCfg.ChatID != "" {
-			return userCfg.ChatID, nil
-		}
-		if userCfg.UserID != "" {
-			return userCfg.UserID, nil
-		}
-		if userCfg.Username != "" {
-			name := userCfg.Username
-			if !strings.HasPrefix(name, "@") {
-				name = "@" + name
-			}
-			return name, nil
-		}
-		return "", fmt.Errorf("telegram binding is incomplete")
-	case ChannelFeishu:
-		userCfg, err := parseFeishuUserConfig(config)
-		if err != nil {
-			return "", err
-		}
-		if userCfg.OpenID != "" {
-			return "open_id:" + userCfg.OpenID, nil
-		}
-		if userCfg.UserID != "" {
-			return "user_id:" + userCfg.UserID, nil
-		}
-		return "", fmt.Errorf("feishu binding is incomplete")
-	default:
-		return "", fmt.Errorf("unsupported channel type: %s", channelType)
-	}
+	m.stopAll(ctx)
+	return nil
 }

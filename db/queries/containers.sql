@@ -31,3 +31,24 @@ ON CONFLICT (container_id) DO UPDATE SET
 
 -- name: GetContainerByContainerID :one
 SELECT * FROM containers WHERE container_id = sqlc.arg(container_id);
+
+-- name: GetContainerByBotID :one
+SELECT * FROM containers WHERE bot_id = sqlc.arg(bot_id) ORDER BY updated_at DESC LIMIT 1;
+
+-- name: DeleteContainerByBotID :exec
+DELETE FROM containers WHERE bot_id = sqlc.arg(bot_id);
+
+-- name: UpdateContainerStatus :exec
+UPDATE containers
+SET status = sqlc.arg(status), updated_at = now()
+WHERE bot_id = sqlc.arg(bot_id);
+
+-- name: UpdateContainerStarted :exec
+UPDATE containers
+SET status = 'running', last_started_at = now(), updated_at = now()
+WHERE bot_id = sqlc.arg(bot_id);
+
+-- name: UpdateContainerStopped :exec
+UPDATE containers
+SET status = 'stopped', last_stopped_at = now(), updated_at = now()
+WHERE bot_id = sqlc.arg(bot_id);

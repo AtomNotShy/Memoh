@@ -1,74 +1,107 @@
 import { Elysia, sse } from 'elysia'
 import z from 'zod'
 import { createAgent } from '../agent'
-import { createAuthFetcher } from '../index'
+import { createAuthFetcher, getBaseUrl, getBraveConfig } from '../index'
 import { ModelConfig } from '../types'
 import { bearerMiddleware } from '../middlewares/bearer'
-import { AllowedActionModel, IdentityContextModel, ModelConfigModel, ScheduleModel } from '../models'
+import { AllowedActionModel, AttachmentModel, IdentityContextModel, MCPConnectionModel, ModelConfigModel, ScheduleModel } from '../models'
 import { allActions } from '../types'
 
 const AgentModel = z.object({
   model: ModelConfigModel,
   activeContextTime: z.number(),
-  platforms: z.array(z.string()),
-  currentPlatform: z.string(),
+  channels: z.array(z.string()),
+  currentChannel: z.string(),
   allowedActions: z.array(AllowedActionModel).optional().default(allActions),
   messages: z.array(z.any()),
   skills: z.array(z.string()),
-  query: z.string(),
   identity: IdentityContextModel,
+  attachments: z.array(AttachmentModel).optional().default([]),
+  mcpConnections: z.array(MCPConnectionModel).optional().default([]),
 })
 
 export const chatModule = new Elysia({ prefix: '/chat' })
   .use(bearerMiddleware)
   .post('/', async ({ body, bearer }) => {
+    console.log('chat', body)
     const authFetcher = createAuthFetcher(bearer)
     const { ask } = createAgent({
       model: body.model as ModelConfig,
       activeContextTime: body.activeContextTime,
-      platforms: body.platforms,
-      currentPlatform: body.currentPlatform,
+      channels: body.channels,
+      currentChannel: body.currentChannel,
       allowedActions: body.allowedActions,
       identity: body.identity,
+      mcpConnections: body.mcpConnections,
+      auth: {
+        bearer: bearer!,
+        baseUrl: getBaseUrl(),
+      },
+      brave: getBraveConfig(),
     }, authFetcher)
     return ask({
       query: body.query,
       messages: body.messages,
       skills: body.skills,
-      attachments: [],
+      attachments: body.attachments,
     })
   }, {
-    body: AgentModel,
+    body: AgentModel.extend({
+      query: z.string(),
+    }),
   })
   .post('/stream', async function* ({ body, bearer }) {
-    const authFetcher = createAuthFetcher(bearer)
-    const { stream } = createAgent({
-      model: body.model as ModelConfig,
-      activeContextTime: body.activeContextTime,
-      platforms: body.platforms,
-      currentPlatform: body.currentPlatform,
-      allowedActions: body.allowedActions,
-      identity: body.identity,
-    }, authFetcher)
-    for await (const action of stream({
-      query: body.query,
-      messages: body.messages,
-      skills: body.skills,
-      attachments: [],
-    })) {
-      yield sse(JSON.stringify(action))
+    console.log('stream', body)
+    try {
+      const authFetcher = createAuthFetcher(bearer)
+      const { stream } = createAgent({
+        model: body.model as ModelConfig,
+        activeContextTime: body.activeContextTime,
+        channels: body.channels,
+        currentChannel: body.currentChannel,
+        allowedActions: body.allowedActions,
+        identity: body.identity,
+        mcpConnections: body.mcpConnections,
+        auth: {
+          bearer: bearer!,
+          baseUrl: getBaseUrl(),
+        },
+        brave: getBraveConfig(),
+      }, authFetcher)
+      for await (const action of stream({
+        query: body.query,
+        messages: body.messages,
+        skills: body.skills,
+        attachments: body.attachments,
+      })) {
+        yield sse(JSON.stringify(action))
+      }
+    } catch (error) {
+      console.error(error)
+      yield sse(JSON.stringify({
+        type: 'error',
+        message: 'Internal server error',
+      }))
     }
   }, {
-    body: AgentModel,
+    body: AgentModel.extend({
+      query: z.string(),
+    }),
   })
   .post('/trigger-schedule', async ({ body, bearer }) => {
     const authFetcher = createAuthFetcher(bearer)
     const { triggerSchedule } = createAgent({
       model: body.model as ModelConfig,
       activeContextTime: body.activeContextTime,
-      platforms: body.platforms,
-      currentPlatform: body.currentPlatform,
-      allowedActions: body.allowedActions,
+      channels: body.channels,
+      currentChannel: body.currentChannel,
+      identity: body.identity,
+      mcpConnections: body.mcpConnections,
+      auth: {
+        bearer: bearer!,
+        baseUrl: getBaseUrl(),
+      },
+      brave: getBraveConfig(),
     }, authFetcher)
     return triggerSchedule({
       schedule: body.schedule,

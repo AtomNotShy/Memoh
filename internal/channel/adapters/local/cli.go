@@ -8,32 +8,51 @@ import (
 	"github.com/memohai/memoh/internal/channel"
 )
 
+// CLIAdapter implements channel.Sender for the local CLI channel.
 type CLIAdapter struct {
-	hub *channel.SessionHub
+	hub *SessionHub
 }
 
-func NewCLIAdapter(hub *channel.SessionHub) *CLIAdapter {
+// NewCLIAdapter creates a CLIAdapter backed by the given session hub.
+func NewCLIAdapter(hub *SessionHub) *CLIAdapter {
 	return &CLIAdapter{hub: hub}
 }
 
+// Type returns the CLI channel type.
 func (a *CLIAdapter) Type() channel.ChannelType {
-	return channel.ChannelCLI
+	return CLIType
 }
 
-func (a *CLIAdapter) Start(ctx context.Context, cfg channel.ChannelConfig, handler channel.InboundHandler) (channel.AdapterRunner, error) {
-	return channel.AdapterRunner{SupportsStop: false}, nil
+// Descriptor returns the CLI channel metadata.
+func (a *CLIAdapter) Descriptor() channel.Descriptor {
+	return channel.Descriptor{
+		Type:        CLIType,
+		DisplayName: "CLI",
+		Configless:  true,
+		Capabilities: channel.ChannelCapabilities{
+			Text:        true,
+			Reply:       true,
+			Attachments: true,
+		},
+		TargetSpec: channel.TargetSpec{
+			Format: "session_id",
+			Hints: []channel.TargetHint{
+				{Label: "Session ID", Example: "cli:uuid"},
+			},
+		},
+	}
 }
 
+// Send publishes an outbound message to the CLI session hub.
 func (a *CLIAdapter) Send(ctx context.Context, cfg channel.ChannelConfig, msg channel.OutboundMessage) error {
 	if a.hub == nil {
 		return fmt.Errorf("cli hub not configured")
 	}
-	target := strings.TrimSpace(msg.To)
+	target := strings.TrimSpace(msg.Target)
 	if target == "" {
 		return fmt.Errorf("cli target is required")
 	}
-	text := strings.TrimSpace(msg.Text)
-	if text == "" {
+	if msg.Message.IsEmpty() {
 		return fmt.Errorf("message is required")
 	}
 	a.hub.Publish(target, msg)

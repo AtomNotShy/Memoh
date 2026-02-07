@@ -21,6 +21,38 @@ func (q *Queries) DeleteSettingsByBotID(ctx context.Context, botID pgtype.UUID) 
 	return err
 }
 
+const getBotModelConfigByBotID = `-- name: GetBotModelConfigByBotID :one
+SELECT
+  bot_model_configs.bot_id,
+  chat_models.model_id AS chat_model_id,
+  memory_models.model_id AS memory_model_id,
+  embedding_models.model_id AS embedding_model_id
+FROM bot_model_configs
+LEFT JOIN models AS chat_models ON chat_models.id = bot_model_configs.chat_model_id
+LEFT JOIN models AS memory_models ON memory_models.id = bot_model_configs.memory_model_id
+LEFT JOIN models AS embedding_models ON embedding_models.id = bot_model_configs.embedding_model_id
+WHERE bot_model_configs.bot_id = $1
+`
+
+type GetBotModelConfigByBotIDRow struct {
+	BotID            pgtype.UUID `json:"bot_id"`
+	ChatModelID      pgtype.Text `json:"chat_model_id"`
+	MemoryModelID    pgtype.Text `json:"memory_model_id"`
+	EmbeddingModelID pgtype.Text `json:"embedding_model_id"`
+}
+
+func (q *Queries) GetBotModelConfigByBotID(ctx context.Context, botID pgtype.UUID) (GetBotModelConfigByBotIDRow, error) {
+	row := q.db.QueryRow(ctx, getBotModelConfigByBotID, botID)
+	var i GetBotModelConfigByBotIDRow
+	err := row.Scan(
+		&i.BotID,
+		&i.ChatModelID,
+		&i.MemoryModelID,
+		&i.EmbeddingModelID,
+	)
+	return i, err
+}
+
 const getSettingsByBotID = `-- name: GetSettingsByBotID :one
 SELECT bot_id, max_context_load_time, language, allow_guest
 FROM bot_settings
@@ -55,6 +87,47 @@ func (q *Queries) GetSettingsByUserID(ctx context.Context, userID pgtype.UUID) (
 		&i.EmbeddingModelID,
 		&i.MaxContextLoadTime,
 		&i.Language,
+	)
+	return i, err
+}
+
+const upsertBotModelConfig = `-- name: UpsertBotModelConfig :one
+INSERT INTO bot_model_configs (bot_id, chat_model_id, memory_model_id, embedding_model_id)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (bot_id) DO UPDATE SET
+  chat_model_id = COALESCE(EXCLUDED.chat_model_id, bot_model_configs.chat_model_id),
+  memory_model_id = COALESCE(EXCLUDED.memory_model_id, bot_model_configs.memory_model_id),
+  embedding_model_id = COALESCE(EXCLUDED.embedding_model_id, bot_model_configs.embedding_model_id)
+RETURNING bot_id, chat_model_id, memory_model_id, embedding_model_id
+`
+
+type UpsertBotModelConfigParams struct {
+	BotID            pgtype.UUID `json:"bot_id"`
+	ChatModelID      pgtype.UUID `json:"chat_model_id"`
+	MemoryModelID    pgtype.UUID `json:"memory_model_id"`
+	EmbeddingModelID pgtype.UUID `json:"embedding_model_id"`
+}
+
+type UpsertBotModelConfigRow struct {
+	BotID            pgtype.UUID `json:"bot_id"`
+	ChatModelID      pgtype.UUID `json:"chat_model_id"`
+	MemoryModelID    pgtype.UUID `json:"memory_model_id"`
+	EmbeddingModelID pgtype.UUID `json:"embedding_model_id"`
+}
+
+func (q *Queries) UpsertBotModelConfig(ctx context.Context, arg UpsertBotModelConfigParams) (UpsertBotModelConfigRow, error) {
+	row := q.db.QueryRow(ctx, upsertBotModelConfig,
+		arg.BotID,
+		arg.ChatModelID,
+		arg.MemoryModelID,
+		arg.EmbeddingModelID,
+	)
+	var i UpsertBotModelConfigRow
+	err := row.Scan(
+		&i.BotID,
+		&i.ChatModelID,
+		&i.MemoryModelID,
+		&i.EmbeddingModelID,
 	)
 	return i, err
 }

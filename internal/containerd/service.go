@@ -415,17 +415,19 @@ func (s *DefaultService) StartTask(ctx context.Context, containerID string, opts
 		return nil, err
 	}
 
-	var cioOpts []cio.Opt
-	if opts == nil || opts.UseStdio {
-		cioOpts = append(cioOpts, cio.WithStdio)
+	var ioCreator cio.Creator
+	if opts == nil || !opts.UseStdio {
+		ioCreator = cio.NullIO
+	} else {
+		cioOpts := []cio.Opt{cio.WithStdio}
+		if opts.Terminal {
+			cioOpts = append(cioOpts, cio.WithTerminal)
+		}
+		if opts.FIFODir != "" {
+			cioOpts = append(cioOpts, cio.WithFIFODir(opts.FIFODir))
+		}
+		ioCreator = cio.NewCreator(cioOpts...)
 	}
-	if opts != nil && opts.Terminal {
-		cioOpts = append(cioOpts, cio.WithTerminal)
-	}
-	if opts != nil && opts.FIFODir != "" {
-		cioOpts = append(cioOpts, cio.WithFIFODir(opts.FIFODir))
-	}
-	ioCreator := cio.NewCreator(cioOpts...)
 
 	task, err := container.NewTask(ctx, ioCreator)
 	if err != nil {

@@ -41,3 +41,42 @@ export const ScheduleModel = z.object({
   maxCalls: z.number().nullable().optional(),
   command: z.string().min(1, 'Schedule command is required'),
 })
+
+export const ImageAttachmentModel = z.object({
+  type: z.literal('image'),
+  base64: z.string().min(1, 'Image base64 is required'),
+  metadata: z.record(z.string(), z.any()).optional(),
+})
+
+export const FileAttachmentModel = z.object({
+  type: z.literal('file'),
+  path: z.string().min(1, 'File path is required'),
+  metadata: z.record(z.string(), z.any()).optional(),
+})
+
+export const AttachmentModel = z.union([ImageAttachmentModel, FileAttachmentModel])
+
+export const HTTPMCPConnectionModel = z.object({
+  name: z.string().min(1, 'Name is required'),
+  type: z.literal('http'),
+  url: z.string().min(1, 'URL is required'),
+  headers: z.record(z.string(), z.string()).optional(),
+})
+
+export const SSEMCPConnectionModel = z.object({
+  name: z.string().min(1, 'Name is required'),
+  type: z.literal('sse'),
+  url: z.string().min(1, 'URL is required'),
+  headers: z.record(z.string(), z.string()).optional(),
+})
+
+export const StdioMCPConnectionModel = z.object({
+  name: z.string().min(1, 'Name is required'),
+  type: z.literal('stdio'),
+  command: z.string().min(1, 'Command is required'),
+  args: z.array(z.string()),
+  env: z.record(z.string(), z.string()).optional(),
+  cwd: z.string().optional(),
+})
+
+export const MCPConnectionModel = z.union([HTTPMCPConnectionModel, SSEMCPConnectionModel, StdioMCPConnectionModel])

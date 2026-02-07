@@ -6,9 +6,12 @@ import ora from 'ora'
 import { table } from 'table'
 import readline from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
+import { randomUUID } from 'node:crypto'
 
 import packageJson from '../../package.json'
 import { apiRequest } from '../core/api'
+import { registerBotCommands } from './bot'
+import { registerChannelCommands } from './channel'
 import {
   readConfig,
   writeConfig,
@@ -69,11 +72,13 @@ type Settings = {
 
 type Bot = {
   id: string
-  name: string
+  name?: string
+  display_name?: string
   description?: string
   avatar?: string
+  type?: string
   owner_user_id: string
-  is_public: boolean
+  is_public?: boolean
   created_at: string
   updated_at: string
 }
@@ -87,6 +92,9 @@ program
   .name('memoh')
   .description('Memoh CLI')
   .version(packageJson.version)
+
+registerBotCommands(program)
+registerChannelCommands(program)
 
 const ensureAuth = () => {
   const token = readToken()
@@ -142,7 +150,7 @@ const resolveBotId = async (token: TokenInfo, preset?: string) => {
       name: 'botId',
       message: 'Select a bot to chat with:',
       choices: bots.map(b => ({
-        name: `${b.name} ${chalk.gray(b.description || '')}`,
+        name: `${b.display_name || b.name || b.id || 'unknown'} ${b.type ? chalk.gray(b.type) : ''}`.trim(),
         value: b.id,
       })),
     },
@@ -528,64 +536,6 @@ model
     }
   })
 
-model
-  .command('enable')
-  .description('Enable model for chat/memory/embedding')
-  .option('--as <usage>')
-  .option('--model <model_id>')
-  .action(async (opts) => {
-    const token = ensureAuth()
-    let enableAs = opts.as
-    if (!enableAs) {
-      const answer = await inquirer.prompt([{
-        type: 'list',
-        name: 'enable_as',
-        message: 'Enable as:',
-        choices: ['chat', 'memory', 'embedding'],
-      }])
-      enableAs = answer.enable_as
-    }
-    enableAs = String(enableAs).trim()
-    if (!['chat', 'memory', 'embedding'].includes(enableAs)) {
-      console.log(chalk.red('Enable as must be one of chat, memory, embedding.'))
-      process.exit(1)
-    }
-    const models = await apiRequest<ModelResponse[]>('/models', {}, token)
-    const requiredType = enableAs === 'embedding' ? 'embedding' : 'chat'
-    const candidates = models.filter(m => getModelType(m) === requiredType)
-    if (candidates.length === 0) {
-      console.log(chalk.red(`No ${requiredType} models available.`))
-      process.exit(1)
-    }
-    let modelId = opts.model
-    if (!modelId) {
-      const answer = await inquirer.prompt([{
-        type: 'list',
-        name: 'model',
-        message: 'Select model:',
-        choices: candidates.map(m => getModelId(m)),
-      }])
-      modelId = answer.model
-    }
-    const selected = candidates.find(m => getModelId(m) === modelId)
-    if (!selected) {
-      console.log(chalk.red('Selected model not found.'))
-      process.exit(1)
-    }
-    const payload: Partial<Settings> = {}
-    if (enableAs === 'chat') payload.chat_model_id = getModelId(selected)
-    if (enableAs === 'memory') payload.memory_model_id = getModelId(selected)
-    if (enableAs === 'embedding') payload.embedding_model_id = getModelId(selected)
-    const spinner = ora('Updating settings...').start()
-    try {
-      await apiRequest('/settings', { method: 'PUT', body: JSON.stringify(payload) }, token)
-      spinner.succeed('Model enabled')
-    } catch (err: unknown) {
-      spinner.fail(getErrorMessage(err) || 'Failed to enable model')
-      process.exit(1)
-    }
-  })
-
 const schedule = program.command('schedule').description('Schedule management')
 
 schedule
@@ -760,30 +710,29 @@ program
     await ensureModelsReady()
     const token = ensureAuth()
     const botId = await resolveBotId(token, program.opts().bot)
-    const session = await createLocalSession(botId, token)
-    const sessionId = session.session_id
-
-    const abortStream = startLocalStream(botId, sessionId, token, (text) => {
-      if (text) {
-        process.stdout.write(`\n${chalk.white(text)}\n`)
-      }
-    })
+    const sessionId = `cli:${randomUUID()}`
 
     const rl = readline.createInterface({ input, output })
     console.log(chalk.green(`Chatting with ${chalk.bold(botId)}. Type \`exit\` to quit.`))
 
     while (true) {
       const line = (await rl.question(chalk.cyan('> '))).trim()
-      if (!line || line.toLowerCase() === 'exit') {
+      if (!line) {
+        if (input.readableEnded) break
+        continue
+      }
+      if (line.toLowerCase() === 'exit') {
         break
       }
       try {
-        await postLocalMessage(botId, sessionId, line, token)
+        const ok = await streamChat(line, botId, sessionId, token)
+        if (!ok) {
+          console.log(chalk.red('Chat failed or stream unavailable.'))
+        }
       } catch (err: unknown) {
         console.log(chalk.red(getErrorMessage(err) || 'Chat failed'))
       }
     }
-    abortStream()
     rl.close()
   })
 
@@ -849,100 +798,72 @@ const streamChat = async (query: string, botId: string, sessionId: string, token
   return true
 }
 
+const extractTextFromMessage = (message: unknown) => {
+  if (typeof message === 'string') return message
+  if (message && typeof message === 'object') {
+    const value = message as { text?: unknown; parts?: unknown[] }
+    if (typeof value.text === 'string') return value.text
+    if (Array.isArray(value.parts)) {
+      const lines = value.parts
+        .map((part) => {
+          if (!part || typeof part !== 'object') return ''
+          const typed = part as { text?: unknown; url?: unknown; emoji?: unknown }
+          if (typeof typed.text === 'string' && typed.text.trim()) return typed.text
+          if (typeof typed.url === 'string' && typed.url.trim()) return typed.url
+          if (typeof typed.emoji === 'string' && typed.emoji.trim()) return typed.emoji
+          return ''
+        })
+        .filter(Boolean)
+      if (lines.length) return lines.join('\n')
+    }
+  }
+  return null
+}
+
 const extractTextFromEvent = (payload: string) => {
   try {
     const event = JSON.parse(payload)
     if (typeof event === 'string') return event
     if (typeof event?.text === 'string') return event.text
+    const messageText = extractTextFromMessage(event?.message)
+    if (messageText) return messageText
+    if (typeof event?.delta === 'string') return event.delta
     if (typeof event?.delta?.content === 'string') return event.delta.content
     if (typeof event?.content === 'string') return event.content
     if (typeof event?.data === 'string') return event.data
     if (typeof event?.data?.text === 'string') return event.data.text
     if (typeof event?.data?.delta?.content === 'string') return event.data.delta.content
+    const nestedMessageText = extractTextFromMessage(event?.data?.message)
+    if (nestedMessageText) return nestedMessageText
     return null
   } catch {
     return payload
   }
 }
 
-type LocalSessionResponse = {
-  session_id: string
-  stream_url: string
-}
-
-const createLocalSession = async (botId: string, token: TokenInfo) => {
-  return apiRequest<LocalSessionResponse>(`/bots/${botId}/cli/sessions`, { method: 'POST' }, token)
-}
-
-const postLocalMessage = async (botId: string, sessionId: string, text: string, token: TokenInfo) => {
-  return apiRequest(`/bots/${botId}/cli/sessions/${sessionId}/messages`, {
-    method: 'POST',
-    body: JSON.stringify({ text }),
-  }, token)
-}
-
-const startLocalStream = (botId: string, sessionId: string, token: TokenInfo, onText: (text: string) => void) => {
-  const config = readConfig()
-  const baseURL = getBaseURL(config)
-  const controller = new AbortController()
-  void (async () => {
-    const resp = await fetch(`${baseURL}/bots/${botId}/cli/sessions/${sessionId}/stream`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token.access_token}`,
-      },
-      signal: controller.signal,
-    }).catch(() => null)
-    if (!resp || !resp.ok || !resp.body) return
-
-    const stream = resp.body
-    const reader = stream.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    while (true) {
-      const { value, done } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      let idx
-      while ((idx = buffer.indexOf('\n')) >= 0) {
-        const line = buffer.slice(0, idx).trim()
-        buffer = buffer.slice(idx + 1)
-        if (!line.startsWith('data:')) continue
-        const payload = line.slice(5).trim()
-        if (!payload || payload === '[DONE]') continue
-        const text = extractTextFromEvent(payload)
-        if (text) {
-          onText(text)
-        }
-      }
-    }
-  })()
-  return () => controller.abort()
-}
-
 const runTui = async (botId: string, token: TokenInfo) => {
-  const session = await createLocalSession(botId, token)
-  const sessionId = session.session_id
-  const abortStream = startLocalStream(botId, sessionId, token, (text) => {
-    if (text) {
-      process.stdout.write(`\n${chalk.white(text)}\n`)
-    }
-  })
+  const sessionId = `cli:${randomUUID()}`
 
   const rl = readline.createInterface({ input, output })
   console.log(chalk.green(`TUI session (line mode) with ${chalk.bold(botId)}. Type \`exit\` to quit.`))
   while (true) {
     const line = (await rl.question(chalk.cyan('> '))).trim()
-    if (!line || line.toLowerCase() === 'exit') {
+    if (!line) {
+      if (input.readableEnded) break
+      continue
+    }
+    if (line.toLowerCase() === 'exit') {
       break
     }
     try {
-      await postLocalMessage(botId, sessionId, line, token)
+      const ok = await streamChat(line, botId, sessionId, token)
+      if (!ok) {
+        console.log(chalk.red('Chat failed or stream unavailable.'))
+      }
     } catch (err: unknown) {
       console.log(chalk.red(getErrorMessage(err) || 'Chat failed'))
     }
   }
-  abortStream()
   rl.close()
 }
 

@@ -17,8 +17,9 @@ import (
 )
 
 type Service struct {
-	queries *sqlc.Queries
-	logger  *slog.Logger
+	queries            *sqlc.Queries
+	logger             *slog.Logger
+	containerLifecycle ContainerLifecycle
 }
 
 var (
@@ -38,6 +39,11 @@ func NewService(log *slog.Logger, queries *sqlc.Queries) *Service {
 		queries: queries,
 		logger:  log.With(slog.String("service", "bots")),
 	}
+}
+
+// SetContainerLifecycle registers a container lifecycle handler for bot operations.
+func (s *Service) SetContainerLifecycle(lc ContainerLifecycle) {
+	s.containerLifecycle = lc
 }
 
 func (s *Service) AuthorizeAccess(ctx context.Context, actorID, botID string, isAdmin bool, policy AccessPolicy) (Bot, error) {
@@ -89,7 +95,7 @@ func (s *Service) Create(ctx context.Context, ownerUserID string, req CreateBotR
 	}
 	metadata := req.Metadata
 	if metadata == nil {
-		metadata = map[string]interface{}{}
+		metadata = map[string]any{}
 	}
 	payload, err := json.Marshal(metadata)
 	if err != nil {
@@ -106,7 +112,19 @@ func (s *Service) Create(ctx context.Context, ownerUserID string, req CreateBotR
 	if err != nil {
 		return Bot{}, err
 	}
-	return toBot(row)
+	bot, err := toBot(row)
+	if err != nil {
+		return Bot{}, err
+	}
+	if s.containerLifecycle != nil {
+		if err := s.containerLifecycle.SetupBotContainer(ctx, bot.ID); err != nil {
+			s.logger.Error("failed to setup bot container",
+				slog.String("bot_id", bot.ID),
+				slog.Any("error", err),
+			)
+		}
+	}
+	return bot, nil
 }
 
 func (s *Service) Get(ctx context.Context, botID string) (Bot, error) {
@@ -279,6 +297,14 @@ func (s *Service) Delete(ctx context.Context, botID string) error {
 	if _, err := s.queries.GetBotByID(ctx, botUUID); err != nil {
 		return err
 	}
+	if s.containerLifecycle != nil {
+		if err := s.containerLifecycle.CleanupBotContainer(ctx, botID); err != nil {
+			s.logger.Error("failed to cleanup bot container",
+				slog.String("bot_id", botID),
+				slog.Any("error", err),
+			)
+		}
+	}
 	return s.queries.DeleteBotByID(ctx, botUUID)
 }
 
@@ -438,16 +464,16 @@ func toBotMember(row sqlc.BotMember) BotMember {
 	}
 }
 
-func decodeMetadata(payload []byte) (map[string]interface{}, error) {
+func decodeMetadata(payload []byte) (map[string]any, error) {
 	if len(payload) == 0 {
-		return map[string]interface{}{}, nil
+		return map[string]any{}, nil
 	}
-	var data map[string]interface{}
+	var data map[string]any
 	if err := json.Unmarshal(payload, &data); err != nil {
 		return nil, err
 	}
 	if data == nil {
-		data = map[string]interface{}{}
+		data = map[string]any{}
 	}
 	return data, nil
 }
