@@ -18,6 +18,27 @@
   <hr>
 </div>
 
+Memoh is a AI agent system platform. Users can create their own AI bots and chat with them via Telegram, Discord, Lark(Feishu), etc. Every bot has independent container and memory system which allows them to edit files, execute commands and build themselves - Like [OpenClaw](https://openclaw.ai), Memoh provides a more secure, flexible and scalable solution for multi-bot management.
+
+## Why Memoh?
+
+OpenClaw, Clawdbot, and Moltbot are impressive, but they have notable drawbacks: stability issues, security concerns, cumbersome configuration, and high token costs. If you're looking for a stable, secure Bot SaaS solution, consider our open-source Memoh.
+
+Memoh is a multi-bot agent service built with Golang. It offers full graphical configuration for bots, Channels, MCP, and Skills. We use Containerd to provide container-level isolation for each bot and draw heavily from OpenClaw's Agent design.
+
+Memoh Bot features a deeply engineered memory layer inspired by Mem0. By storing knowledge from each conversation turn, it enables more precise memory retrieval.
+
+Memoh Bot can distinguish and remember requests from multiple humans and bots, working seamlessly in any group chat. You can use Memoh to build bot teams, or set up accounts for family members to manage daily household tasks with bots.
+
+## Features
+- **Multi-bot Management**: Create multiple bots; humans and bots, or bots with each other, can chat privately, in groups, or collaborate.
+- **Containerized**: Each bot runs in its own isolated container. Bots can freely execute commands, edit files, and access the network within their containers—like having their own computer.
+- **Memory Engineering**: Every chat is stored in the database, with the last 24 hours of context loaded by default. Each conversation turn is stored as memory and can be retrieved by bots through semantic search.
+- **Various Platforms**: Supports Telegram, Lark (Feishu), and more.
+- **Simple and Easy to Use**: Configure bots and settings for Provider, Model, Memory, Channel, MCP, and Skills through a graphical interface—no coding required to set up your own AI bot.
+- **Scheduled Tasks**: Schedule tasks with cron expressions to run commands at specified times.
+- More...
+
 ## Roadmap
 
 Please refer to the [Roadmap Version 0.1](https://github.com/memohai/Memoh/issues/2) for more details.
