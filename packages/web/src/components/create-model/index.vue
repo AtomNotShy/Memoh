@@ -67,7 +67,6 @@
 
             <!-- Display Name -->
             <FormField
-              v-slot="{ componentField }"
               name="name"
             >
               <FormItem>
@@ -79,7 +78,8 @@
                   <Input
                     type="text"
                     :placeholder="$t('models.displayNamePlaceholder')"
-                    v-bind="componentField"
+                    :model-value="form.values.name ?? ''"
+                    @input="onNameInput"
                   />
                 </FormControl>
               </FormItem>
@@ -130,7 +130,7 @@
             </DialogClose>
             <Button
               type="submit"
-              :disabled="!form.meta.value.valid"
+              :disabled="!canSubmit"
             >
               <Spinner v-if="isLoading" />
               {{ title === 'edit' ? $t('common.save') : $t('models.addModel') }}
@@ -169,11 +169,11 @@ import {
   Spinner,
 } from '@memoh/ui'
 import { useForm } from 'vee-validate'
-import { inject, computed, watch, type Ref, ref } from 'vue'
+import { inject, computed, watch, nextTick, type Ref, ref } from 'vue'
 import { toTypedSchema } from '@vee-validate/zod'
 import z from 'zod'
 import { type ModelInfo } from '@memoh/shared'
-import { useCreateModel } from '@/composables/api/useModels'
+import { useCreateModel, useUpdateModel } from '@/composables/api/useModels'
 
 const formSchema = toTypedSchema(z.object({
   type: z.string().min(1),
@@ -187,53 +187,117 @@ const form = useForm({
   validationSchema: formSchema,
 })
 
-const selectedType = computed(() => form.values.type)
-
-const { id } = defineProps<{ id: string }>()
-
-const { mutate: createModel, isLoading } = useCreateModel()
-
-const addModel = form.handleSubmit(async (values) => {
-  try {
-    const payload: Record<string, unknown> = {
-      type: values.type,
-      model_id: values.model_id,
-      llm_provider_id: id,
-    }
-
-    if (values.name) {
-      payload.name = values.name
-    }
-
-    if (values.type === 'embedding' && values.dimensions) {
-      payload.dimensions = values.dimensions
-    }
-
-    if (values.type === 'chat') {
-      payload.is_multimodal = values.is_multimodal ?? false
-    }
-
-    await createModel(payload as any)
-    open.value = false
-  } catch {
-    return
-  }
-})
+const selectedType = computed(() => form.values.type || editInfo?.value?.type)
 
 const open = inject<Ref<boolean>>('openModel', ref(false))
 const title = inject<Ref<'edit' | 'title'>>('openModelTitle', ref('title'))
 const editInfo = inject<Ref<ModelInfo | null>>('openModelState', ref(null))
 
-watch(open, () => {
-  if (open.value && editInfo?.value) {
-    form.setValues(editInfo.value)
-  } else {
-    form.resetForm()
-  }
+// 保存按钮：编辑模式直接可提交（表单已预填充，handleSubmit 内部会校验）
+// 新建模式需要必填字段有值
+const canSubmit = computed(() => {
+  if (title.value === 'edit') return true
+  const { type, model_id } = form.values
+  return !!type && !!model_id
+})
 
+// 新建时的空值
+const emptyValues = {
+  type: '' as string,
+  model_id: '' as string,
+  name: '' as string,
+  dimensions: undefined as number | undefined,
+  is_multimodal: undefined as boolean | undefined,
+}
+
+// Display Name 自动跟随 Model ID，除非用户主动修改过
+const userEditedName = ref(false)
+
+watch(
+  () => form.values.model_id,
+  (newModelId) => {
+    if (!userEditedName.value && newModelId !== undefined) {
+      form.setFieldValue('name', newModelId)
+    }
+  },
+)
+
+function onNameInput(e: Event) {
+  userEditedName.value = true
+  form.setFieldValue('name', (e.target as HTMLInputElement).value)
+}
+
+const { id } = defineProps<{ id: string }>()
+
+const { mutateAsync: createModel, isLoading: createLoading } = useCreateModel()
+const { mutateAsync: updateModel, isLoading: updateLoading } = useUpdateModel()
+const isLoading = computed(() => createLoading.value || updateLoading.value)
+
+async function addModel(e: Event) {
+  e.preventDefault()
+
+  const isEdit = title.value === 'edit' && !!editInfo?.value
+  const fallback = editInfo?.value
+
+  // 从 form.values 读取，编辑模式用 editInfo 兜底
+  // （Dialog 异步渲染可能导致 vee-validate 内部状态未同步）
+  const type = form.values.type || (isEdit ? fallback!.type : '')
+  const model_id = form.values.model_id || (isEdit ? fallback!.model_id : '')
+  const name = form.values.name ?? (isEdit ? fallback!.name : '')
+  const dimensions = form.values.dimensions ?? (isEdit ? fallback!.dimensions : undefined)
+  const is_multimodal = form.values.is_multimodal ?? (isEdit ? fallback!.is_multimodal : undefined)
+
+  if (!type || !model_id) return
+
+  try {
+    const payload: Record<string, unknown> = {
+      type,
+      model_id,
+      llm_provider_id: id,
+    }
+
+    if (name) {
+      payload.name = name
+    }
+
+    if (type === 'embedding' && dimensions) {
+      payload.dimensions = dimensions
+    }
+
+    if (type === 'chat') {
+      payload.is_multimodal = is_multimodal ?? false
+    }
+
+    if (isEdit) {
+      await updateModel({ modelId: fallback!.model_id, data: payload as any })
+    } else {
+      await createModel(payload as any)
+    }
+    open.value = false
+  } catch {
+    return
+  }
+}
+
+watch(open, async () => {
   if (!open.value) {
     title.value = 'title'
     editInfo.value = null
+    return
+  }
+
+  // 等待 Dialog 内容和 FormField 组件挂载完成
+  await nextTick()
+
+  if (editInfo?.value) {
+    const { type, model_id, name, dimensions, is_multimodal } = editInfo.value
+    form.resetForm({ values: { type, model_id, name, dimensions, is_multimodal } })
+    // 编辑时，如果已有 name 且与 model_id 不同，视为用户自定义
+    userEditedName.value = !!(name && name !== model_id)
+  } else {
+    // 新建模式：显式传空值，避免复用上次编辑数据
+    form.resetForm({ values: { ...emptyValues } })
+    userEditedName.value = false
   }
 }, {
   immediate: true,

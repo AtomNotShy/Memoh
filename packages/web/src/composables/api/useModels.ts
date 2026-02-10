@@ -55,6 +55,18 @@ export function useCreateModel() {
   })
 }
 
+export function useUpdateModel() {
+  const queryCache = useQueryCache()
+  return useMutation({
+    mutation: ({ modelId, data }: { modelId: string; data: Partial<CreateModelRequest> }) =>
+      fetchApi(`/models/model/${modelId}`, {
+        method: 'PUT',
+        body: data,
+      }),
+    onSettled: () => queryCache.invalidateQueries({ key: ['model'] }),
+  })
+}
+
 export function useDeleteModel() {
   const queryCache = useQueryCache()
   return useMutation({

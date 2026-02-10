@@ -67,14 +67,23 @@
             <FormItem>
               <Label class="mb-2">
                 {{ $t('bots.type') }}
-                <span class="text-muted-foreground text-xs ml-1">({{ $t('common.optional') }})</span>
               </Label>
               <FormControl>
-                <Input
-                  type="text"
-                  :placeholder="$t('bots.typePlaceholder')"
-                  v-bind="componentField"
-                />
+                <Select v-bind="componentField">
+                  <SelectTrigger class="w-full">
+                    <SelectValue :placeholder="$t('bots.typePlaceholder')" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="personal">
+                        Personal
+                      </SelectItem>
+                      <SelectItem value="public">
+                        Public
+                      </SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
               </FormControl>
             </FormItem>
           </FormField>
@@ -129,6 +138,12 @@ import {
   FormField,
   FormControl,
   FormItem,
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Separator,
   Label,
   Spinner,
@@ -148,12 +163,15 @@ const isEdit = computed(() => !!editBot.value)
 const formSchema = toTypedSchema(z.object({
   display_name: z.string().min(1),
   avatar_url: z.string().optional(),
-  type: z.string().optional(),
+  type: z.string().min(1),
   is_active: z.coerce.boolean().optional(),
 }))
 
 const form = useForm({
   validationSchema: formSchema,
+  initialValues: {
+    type: 'personal',
+  },
 })
 
 const { mutate: createBot, isLoading: createLoading } = useCreateBot()
@@ -172,7 +190,7 @@ watch(open, (val) => {
       },
     })
   } else if (!val) {
-    form.resetForm()
+    form.resetForm({ values: { display_name: '', avatar_url: '', type: 'personal' } })
     editBot.value = null
   }
 })
