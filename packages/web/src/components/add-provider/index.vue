@@ -6,9 +6,8 @@
           class="w-full shadow-none! text-muted-foreground mb-4"
           variant="outline"
         >
-          <svg-icon
-            type="mdi"
-            :path="mdiPlus"
+          <FontAwesomeIcon
+            :icon="['fas', 'plus']"
             class="mr-1"
           /> 添加
         </Button>
@@ -127,8 +126,6 @@
   </section>
 </template>
 <script setup lang="ts">
-import { mdiPlus } from '@mdi/js'
-import SvgIcon from '@jamescoyle/vue-icon'
 import {
   Button,
   Dialog,

@@ -4,12 +4,16 @@
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <img
-              src="../../../public/logo.png"
-              width="80"
-              class="m-auto"
-              alt="logo.png"
-            >
+            <div class="flex flex-row items-center w-full gap-2 px-3 py-2">
+              <img
+                src="/logo.png"
+                class="size-10"
+                alt="logo.png"
+              >
+              <span class="text-xl font-bold text-gray-500 dark:text-gray-400">
+                Memoh
+              </span>
+            </div>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
@@ -36,10 +40,7 @@
                     }"
                     @click="router.push({ name: sidebarItem.name })"
                   >
-                    <svg-icon
-                      type="mdi"
-                      :path="sidebarItem.icon"
-                    />
+                    <FontAwesomeIcon :icon="sidebarItem.icon" />
                     <span>{{ sidebarItem.title }}</span>
                   </Toggle>
                 </SidebarMenuButton>
@@ -65,8 +66,6 @@ import {
   Toggle
 } from '@memoh/ui'
 import { computed } from 'vue'
-import SvgIcon from '@jamescoyle/vue-icon'
-import { mdiRobot, mdiChatOutline, mdiCogBox } from '@mdi/js'
 import { useRouter,useRoute } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import i18n from '@/i18n'
@@ -85,7 +84,7 @@ const sidebarInfo = computed(() => [
   {
     title: t('slidebar.chat'),
     name: 'chat',
-    icon: mdiChatOutline
+    icon: ['far', 'comments']
   },
   // {
   //   title: t('slidebar.home'),
@@ -95,11 +94,11 @@ const sidebarInfo = computed(() => [
   {
     title: t('slidebar.model_setting'),
     name: 'models',
-    icon: mdiRobot
+    icon: ['fas', 'robot']
   }, {
     title: t('slidebar.setting'),
     name: 'settings',
-    icon: mdiCogBox
+    icon: ['fas', 'gear']
   },
   // {
   //   title: 'MCP',

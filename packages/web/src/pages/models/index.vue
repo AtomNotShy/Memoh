@@ -28,9 +28,6 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@memoh/ui'
-import { mdiMagnify,mdiListBoxOutline } from '@mdi/js'
-// import DataTable from '@/components/DataTable/index.vue'
-import SvgIcon from '@jamescoyle/vue-icon'
 import request from '@/utils/request'
 import { type ProviderInfo } from '@memoh/shared'
 import AddProvider from '@/components/add-provider/index.vue'
@@ -118,11 +115,7 @@ const openStatus = reactive({
                   searchProviderTxt.value = searchProviderTxt.temp_value
                 }"
               >
-                <svg-icon
-                  type="mdi"
-                  :path="mdiMagnify"
-                  class="translate-icon"
-                />
+                <FontAwesomeIcon :icon="['fas', 'magnifying-glass']" />
               </InputGroupAddon>
             </InputGroup>
           </SidebarHeader>
@@ -184,10 +177,7 @@ const openStatus = reactive({
           >
             <EmptyHeader>
               <EmptyMedia variant="icon">
-                <svg-icon
-                  type="mdi"
-                  :path="mdiListBoxOutline"
-                />
+                <FontAwesomeIcon :icon="['far', 'rectangle-list']" />
               </EmptyMedia>
             </EmptyHeader>
             <EmptyTitle>No Provider</EmptyTitle>

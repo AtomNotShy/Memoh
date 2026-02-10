@@ -32,10 +32,7 @@
         >
           <template v-if="!loading">
             {{ $t('chat.send') }}
-            <svg-icon
-              type="mdi"
-              :path="mdiSendOutline"
-            />
+            <FontAwesomeIcon :icon="['fas', 'paper-plane']" />
           </template>
           <LoadingDots v-else />
         </Button>
@@ -50,8 +47,6 @@ import {
   Textarea,
   Button,
 } from '@memoh/ui'
-import SvgIcon from '@jamescoyle/vue-icon'
-import { mdiSendOutline } from '@mdi/js'
 import ChatList from '@/components/chat-list/index.vue'
 import LoadingDots from '@/components/loading-dots/index.vue'
 import { provide, ref } from 'vue'

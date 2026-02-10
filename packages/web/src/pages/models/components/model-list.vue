@@ -31,10 +31,7 @@
     >
       <EmptyHeader>
         <EmptyMedia variant="icon">
-          <svg-icon
-            type="mdi"
-            :path="mdiListBoxOutline"
-          />
+          <FontAwesomeIcon :icon="['far', 'rectangle-list']" />
         </EmptyMedia>
       </EmptyHeader>
       <EmptyTitle>还没有添加模型</EmptyTitle>
@@ -55,8 +52,6 @@ import {
 } from '@memoh/ui'
 import CreateModel from '@/components/create-model/index.vue'
 import ModelItem from './model-item.vue'
-import SvgIcon from '@jamescoyle/vue-icon'
-import { mdiListBoxOutline } from '@mdi/js'
 import { type ModelInfo } from '@memoh/shared'
 
 defineProps<{

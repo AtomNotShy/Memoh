@@ -1,9 +1,8 @@
 <template>
   <div class="max-w-187 m-auto">
     <h6 class="mt-6 mb-2 flex items-center">
-      <svg-icon
-        type="mdi"
-        :path="mdiCog"
+      <FontAwesomeIcon
+        :icon="['fas', 'gear']"
         class="mr-2"
       />
       显示设置
@@ -103,8 +102,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@memoh/ui'
-import SvgIcon from '@jamescoyle/vue-icon'
-import { mdiCog } from '@mdi/js'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useUserStore } from '../../store/user'

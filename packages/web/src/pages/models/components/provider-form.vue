@@ -70,10 +70,7 @@
       >
         <template #trigger>
           <Button variant="outline">
-            <svg-icon
-              type="mdi"
-              :path="mdiTrashCanOutline"
-            />
+            <FontAwesomeIcon :icon="['far', 'trash-can']" />
           </Button>
         </template>
       </ConfirmPopover>
@@ -99,8 +96,6 @@ import {
   Spinner,
 } from '@memoh/ui'
 import ConfirmPopover from '@/components/confirm-popover/index.vue'
-import SvgIcon from '@jamescoyle/vue-icon'
-import { mdiTrashCanOutline } from '@mdi/js'
 import { computed, toValue, watch } from 'vue'
 import { toTypedSchema } from '@vee-validate/zod'
 import z from 'zod'

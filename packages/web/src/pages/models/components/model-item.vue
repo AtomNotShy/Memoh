@@ -42,10 +42,7 @@
         class="cursor-pointer"
         @click="$emit('edit', model)"
       >
-        <svg-icon
-          type="mdi"
-          :path="mdiCog"
-        />
+        <FontAwesomeIcon :icon="['fas', 'gear']" />
       </Button>
 
       <ConfirmPopover
@@ -55,10 +52,7 @@
       >
         <template #trigger>
           <Button variant="outline">
-            <svg-icon
-              type="mdi"
-              :path="mdiTrashCanOutline"
-            />
+            <FontAwesomeIcon :icon="['far', 'trash-can']" />
           </Button>
         </template>
       </ConfirmPopover>
@@ -83,8 +77,6 @@ import {
   SelectItem,
 } from '@memoh/ui'
 import ConfirmPopover from '@/components/confirm-popover/index.vue'
-import SvgIcon from '@jamescoyle/vue-icon'
-import { mdiCog, mdiTrashCanOutline } from '@mdi/js'
 import { type ModelInfo } from '@memoh/shared'
 
 defineProps<{
