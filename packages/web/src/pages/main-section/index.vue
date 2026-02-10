@@ -13,8 +13,8 @@
 
 <script setup lang="ts">
 import MainLayout from '@/layout/mainLayout/index.vue'
-import SideBar from '@/components/Sidebar/index.vue'
-import MainContainer from '@/components/MainContainer/index.vue'
+import SideBar from '@/components/sidebar/index.vue'
+import MainContainer from '@/components/main-container/index.vue'
 import { provide,ref } from 'vue'
 
 

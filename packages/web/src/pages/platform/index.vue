@@ -210,7 +210,7 @@
 import { useMutation, useQuery } from '@pinia/colada'
 import request from '@/utils/request'
 import { watch, h, provide, ref } from 'vue'
-import AddPlatform from '@/components/AddPlatform/index.vue'
+import AddPlatform from '@/components/add-platform/index.vue'
 import {Card,CardHeader,CardFooter,CardContent,CardTitle,Switch,Button, Badge } from '@memoh/ui'
 
 const open = ref(false)

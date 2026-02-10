@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // import type { Payment } from '@/components/columns'
 import { computed, ref, provide, watch, reactive } from 'vue'
-import modelSetting from './modelSetting.vue'
+import modelSetting from './model-setting.vue'
 import { useQuery, useQueryCache } from '@pinia/colada'
 import {
   ScrollArea,
@@ -33,7 +33,7 @@ import { mdiMagnify,mdiListBoxOutline } from '@mdi/js'
 import SvgIcon from '@jamescoyle/vue-icon'
 import request from '@/utils/request'
 import { type ProviderInfo } from '@memoh/shared'
-import AddProvider from '@/components/AddProvider/index.vue'
+import AddProvider from '@/components/add-provider/index.vue'
 import { clientType } from '@memoh/shared'
 
 const filterProvider = ref('')

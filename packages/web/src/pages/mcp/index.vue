@@ -11,9 +11,9 @@
 <script setup lang="ts">
 import { useQuery,useMutation,useQueryCache } from '@pinia/colada'
 import request from '@/utils/request'
-import { watch, h, provide,ref, computed,reactive } from 'vue'
-import DataTable from '@/components/DataTable/index.vue'
-import CreateMCP from '@/components/CreateMCP/index.vue'
+import { h, provide,ref, computed } from 'vue'
+import DataTable from '@/components/data-table/index.vue'
+import CreateMCP from '@/components/create-mcp/index.vue'
 import { type ColumnDef } from '@tanstack/vue-table'
 import {
   Badge,

@@ -24,7 +24,7 @@ import UserChat from './UserChat/index.vue'
 import RobotChat from './RobotChat/index.vue'
 import { inject, nextTick, ref, watch } from 'vue'
 import { useElementBounding } from '@vueuse/core'
-import { useChatList } from '@/store/ChatList'
+import { useChatList } from '@/store/chat-list'
 import { onBeforeRouteLeave } from 'vue-router'
 import { storeToRefs } from 'pinia'
 // 模拟一下数据

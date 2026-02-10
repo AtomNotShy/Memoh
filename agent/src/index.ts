@@ -1,32 +1,32 @@
-import { Elysia } from "elysia";
-import { chatModule } from "./modules/chat";
-import { corsMiddleware } from "./middlewares/cors";
-import { errorMiddleware } from "./middlewares/error";
-import { loadConfig } from "./config";
-import { join } from "path";
+import { Elysia } from 'elysia'
+import { chatModule } from './modules/chat'
+import { corsMiddleware } from './middlewares/cors'
+import { errorMiddleware } from './middlewares/error'
+import { loadConfig } from './config'
+import { join } from 'path'
 
-const config = loadConfig("../config.toml");
+const config = loadConfig('../config.toml')
 
 export const getBraveConfig = () => {
   return {
-    apiKey: config.brave.api_key ?? "",
-    baseUrl: config.brave.base_url ?? "https://api.search.brave.com/res/v1/",
+    apiKey: config.brave.api_key ?? '',
+    baseUrl: config.brave.base_url ?? 'https://api.search.brave.com/res/v1/',
   }
 }
 
 export const getBaseUrl = () => {
-  let baseUrl = "";
+  let baseUrl = ''
   if (!baseUrl) {
-    baseUrl = "http://127.0.0.1";
+    baseUrl = 'http://127.0.0.1'
   }
   if (
-    typeof config.server.addr === "string" &&
-    config.server.addr.startsWith(":")
+    typeof config.server.addr === 'string' &&
+    config.server.addr.startsWith(':')
   ) {
-    baseUrl = `http://127.0.0.1${config.server.addr}`;
+    baseUrl = `http://127.0.0.1${config.server.addr}`
   }
-  return baseUrl;
-};
+  return baseUrl
+}
 
 export type AuthFetcher = (
   url: string,
@@ -34,18 +34,18 @@ export type AuthFetcher = (
 ) => Promise<Response>;
 export const createAuthFetcher = (bearer: string | undefined): AuthFetcher => {
   return async (url: string, options?: RequestInit) => {
-    const requestOptions = options ?? {};
-    const headers = new Headers(requestOptions.headers || {});
+    const requestOptions = options ?? {}
+    const headers = new Headers(requestOptions.headers || {})
     if (bearer) {
-      headers.set("Authorization", `Bearer ${bearer}`);
+      headers.set('Authorization', `Bearer ${bearer}`)
     }
 
     return await fetch(join(getBaseUrl(), url), {
       ...requestOptions,
       headers,
-    });
-  };
-};
+    })
+  }
+}
 
 const app = new Elysia()
   .use(corsMiddleware)
@@ -53,10 +53,10 @@ const app = new Elysia()
   .use(chatModule)
   .listen({
     port: config.agent_gateway.port ?? 8081,
-    hostname: config.agent_gateway.host ?? "127.0.0.1",
+    hostname: config.agent_gateway.host ?? '127.0.0.1',
     idleTimeout: 255, // max allowed by Bun, to accommodate long-running tool calls
-  });
+  })
 
 console.log(
   `Agent Gateway is running at ${app.server?.hostname}:${app.server?.port}`,
-);
+)

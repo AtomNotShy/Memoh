@@ -268,7 +268,7 @@ import {
   SelectGroup,
   SelectItem
 } from '@memoh/ui'
-import CreateModel from '@/components/CreateModel/index.vue'
+import CreateModel from '@/components/create-model/index.vue'
 import { computed, inject, provide, reactive, ref, toRef, toValue, watch } from 'vue'
 import { type ProviderInfo } from '@memoh/shared'
 import { useMutation, useQuery, useQueryCache } from '@pinia/colada'

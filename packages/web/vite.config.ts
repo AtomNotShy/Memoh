@@ -17,10 +17,10 @@ export default defineConfig({
     port,
     host: '0.0.0.0',
     proxy: {
-      "/api": {
-        target: "http://localhost:8080",
+      '/api': {
+        target: 'http://localhost:8080',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, "")
+        rewrite: (path) => path.replace(/^\/api/, '')
       }
     },
   },
@@ -28,10 +28,10 @@ export default defineConfig({
     port,
     host: '0.0.0.0',
     proxy: {
-      "/api": {
-        target: "http://localhost:8080",
+      '/api': {
+        target: 'http://localhost:8080',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, "")
+        rewrite: (path) => path.replace(/^\/api/, '')
       }
     },
     allowedHosts: true,

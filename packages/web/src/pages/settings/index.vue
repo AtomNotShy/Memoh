@@ -218,7 +218,7 @@ import { toast } from 'vue-sonner'
 import i18n from '@/i18n'
 import { useColorMode } from '@vueuse/core'
 import { useRouter } from 'vue-router'
-import { useUserStore } from '../../store/User'
+import { useUserStore } from '../../store/user'
 const router=useRouter()
 
 const { exitLogin } = useUserStore()

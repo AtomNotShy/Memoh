@@ -54,13 +54,12 @@ import {
   ScrollArea,
   Textarea,
   Button,
-  TextGenerateEffect
 } from '@memoh/ui'
 import SvgIcon from '@jamescoyle/vue-icon'
 import { mdiSendOutline } from '@mdi/js'
-import ChatList from '@/components/ChatList/index.vue'
+import ChatList from '@/components/chat-list/index.vue'
 import { provide, ref } from 'vue'
-import { useChatList } from '@/store/ChatList'
+import { useChatList } from '@/store/chat-list'
 import { storeToRefs } from 'pinia'
 const chatSay = ref('')
 const curInputSay = ref('')

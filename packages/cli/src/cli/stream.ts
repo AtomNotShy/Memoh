@@ -272,10 +272,10 @@ const formatToolResult = (toolName: string, result: unknown) => {
     const r = unwrapToolResult(result)
     if (r) {
       if ('ok' in r) {
-        return chalk.dim(`  ╰─ `) + (r.ok ? chalk.green('✓ ok') : chalk.red('✗ failed'))
+        return chalk.dim('  ╰─ ') + (r.ok ? chalk.green('✓ ok') : chalk.red('✗ failed'))
       }
     }
-    return chalk.dim(`  ╰─ done`)
+    return chalk.dim('  ╰─ done')
   }
   return null
 }

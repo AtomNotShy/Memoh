@@ -108,7 +108,7 @@ import { toTypedSchema } from '@vee-validate/zod'
 import { useForm } from 'vee-validate'
 import * as z from 'zod'
 import request from '@/utils/request'
-import { useUserStore } from '@/store/User.ts'
+import { useUserStore } from '@/store/user'
 import {  ref } from 'vue'
 import { toast } from 'vue-sonner'
 const router = useRouter()

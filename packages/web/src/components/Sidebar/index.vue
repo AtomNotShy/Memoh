@@ -68,7 +68,7 @@ import { computed } from 'vue'
 import SvgIcon from '@jamescoyle/vue-icon'
 import { mdiRobot, mdiChatOutline, mdiCogBox } from '@mdi/js'
 import { useRouter,useRoute } from 'vue-router'
-import { useUserStore } from '@/store/User.ts'
+import { useUserStore } from '@/store/user'
 import i18n from '@/i18n'
 import { ref } from 'vue'
 
