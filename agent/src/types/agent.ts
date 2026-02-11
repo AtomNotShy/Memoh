@@ -8,8 +8,12 @@ export interface IdentityContext {
   sessionId: string
   containerId: string
 
-  contactId: string
-  contactName: string
+  channelIdentityId: string
+  displayName: string
+
+  // Deprecated compatibility fields kept optional for older callers.
+  contactId?: string
+  contactName?: string
   contactAlias?: string
   userId?: string
 

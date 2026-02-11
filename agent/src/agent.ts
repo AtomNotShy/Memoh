@@ -28,8 +28,8 @@ export const createAgent = ({
     botId: '',
     sessionId: '',
     containerId: '',
-    contactId: '',
-    contactName: '',
+    channelIdentityId: '',
+    displayName: '',
   },
   auth,
 }: AgentParams, fetch: AuthFetcher) => {
@@ -108,6 +108,7 @@ export const createAgent = ({
       model: modelConfig,
       brave,
       identity,
+      auth,
       enableSkill,
     })
     const defaultMCPConnections = getDefaultMCPConnections()
@@ -130,8 +131,8 @@ export const createAgent = ({
     const images = input.attachments.filter(attachment => attachment.type === 'image')
     const files = input.attachments.filter((a): a is ContainerFileAttachment => a.type === 'file')
     const text = user(input.query, {
-      contactId: identity.contactId,
-      contactName: identity.contactName,
+      channelIdentityId: identity.channelIdentityId || identity.contactId || '',
+      displayName: identity.displayName || identity.contactName || 'User',
       channel: currentChannel,
       date: new Date(),
       attachments: files,
@@ -171,7 +172,7 @@ export const createAgent = ({
     const { messages: strippedMessages, attachments: messageAttachments } = stripAttachmentsFromMessages(response.messages)
     const allAttachments = dedupeAttachments([...textAttachments, ...messageAttachments])
     return {
-      messages: [userPrompt, ...strippedMessages],
+      messages: strippedMessages,
       reasoning: reasoning.map(part => part.text),
       usage,
       text: cleanedText,
@@ -376,7 +377,7 @@ export const createAgent = ({
     const { messages: strippedMessages } = stripAttachmentsFromMessages(result.messages)
     yield {
       type: 'agent_end',
-      messages: [userPrompt, ...strippedMessages],
+      messages: strippedMessages,
       reasoning: result.reasoning,
       usage: result.usage!,
       skills: getEnabledSkills(),

@@ -24,6 +24,7 @@ func NewService(queries *sqlc.Queries) *Service {
 	return &Service{queries: queries}
 }
 
+// Issue creates a new preauth key for the given bot.
 func (s *Service) Issue(ctx context.Context, botID, issuedByUserID string, ttl time.Duration) (Key, error) {
 	if s.queries == nil {
 		return Key{}, fmt.Errorf("preauth queries not configured")
@@ -88,13 +89,13 @@ func (s *Service) MarkUsed(ctx context.Context, id string) (Key, error) {
 
 func normalizeKey(row sqlc.BotPreauthKey) Key {
 	return Key{
-		ID:             toUUIDString(row.ID),
-		BotID:          toUUIDString(row.BotID),
-		Token:          strings.TrimSpace(row.Token),
-		IssuedByUserID: toUUIDString(row.IssuedByUserID),
-		ExpiresAt:      timeFromPg(row.ExpiresAt),
-		UsedAt:         timeFromPg(row.UsedAt),
-		CreatedAt:      timeFromPg(row.CreatedAt),
+		ID:                        toUUIDString(row.ID),
+		BotID:                     toUUIDString(row.BotID),
+		Token:                     strings.TrimSpace(row.Token),
+		IssuedByChannelIdentityID: toUUIDString(row.IssuedByUserID),
+		ExpiresAt:                 timeFromPg(row.ExpiresAt),
+		UsedAt:                    timeFromPg(row.UsedAt),
+		CreatedAt:                 timeFromPg(row.CreatedAt),
 	}
 }
 

@@ -9,7 +9,7 @@ import (
 func TestInitAndLogging(t *testing.T) {
 	// 测试 JSON 格式
 	Init("debug", "json")
-	
+
 	if L.Enabled(context.Background(), slog.LevelDebug) != true {
 		t.Error("expected debug level to be enabled")
 	}
@@ -20,15 +20,15 @@ func TestInitAndLogging(t *testing.T) {
 
 func TestContextLogger(t *testing.T) {
 	Init("info", "text")
-	
+
 	// 创建一个带特定属性的 logger
 	expectedKey := "request_id"
 	expectedValue := "12345"
 	customLogger := L.With(expectedKey, expectedValue)
-	
+
 	ctx := WithContext(context.Background(), customLogger)
 	extracted := FromContext(ctx)
-	
+
 	// 这里简单验证提取出来的是否是同一个（或者功能一致）
 	if extracted == nil {
 		t.Fatal("extracted logger should not be nil")

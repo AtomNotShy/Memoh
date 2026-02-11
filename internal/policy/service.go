@@ -33,6 +33,7 @@ func NewService(log *slog.Logger, botsService *bots.Service, settingsService *se
 	}
 }
 
+// Resolve evaluates the full access policy for a bot.
 func (s *Service) Resolve(ctx context.Context, botID string) (Decision, error) {
 	if s == nil || s.bots == nil || s.settings == nil {
 		return Decision{}, fmt.Errorf("policy service not configured")
@@ -58,4 +59,34 @@ func (s *Service) Resolve(ctx context.Context, botID string) (Decision, error) {
 		decision.AllowGuest = false
 	}
 	return decision, nil
+}
+
+// AllowGuest checks if the bot allows guest access. Implements router.PolicyService.
+func (s *Service) AllowGuest(ctx context.Context, botID string) (bool, error) {
+	decision, err := s.Resolve(ctx, botID)
+	if err != nil {
+		return false, err
+	}
+	return decision.AllowGuest, nil
+}
+
+// BotType returns the normalized bot type. Implements router.PolicyService.
+func (s *Service) BotType(ctx context.Context, botID string) (string, error) {
+	decision, err := s.Resolve(ctx, botID)
+	if err != nil {
+		return "", err
+	}
+	return decision.BotType, nil
+}
+
+// BotOwnerUserID returns bot owner's user id. Implements router.PolicyService.
+func (s *Service) BotOwnerUserID(ctx context.Context, botID string) (string, error) {
+	if s == nil || s.bots == nil {
+		return "", fmt.Errorf("policy service not configured")
+	}
+	bot, err := s.bots.Get(ctx, strings.TrimSpace(botID))
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(bot.OwnerUserID), nil
 }

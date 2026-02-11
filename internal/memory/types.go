@@ -15,28 +15,26 @@ type Message struct {
 }
 
 type AddRequest struct {
-	Message          string                 `json:"message,omitempty"`
-	Messages         []Message              `json:"messages,omitempty"`
-	BotID            string                 `json:"bot_id,omitempty"`
-	SessionID        string                 `json:"session_id,omitempty"`
-	AgentID          string                 `json:"agent_id,omitempty"`
-	RunID            string                 `json:"run_id,omitempty"`
+	Message          string         `json:"message,omitempty"`
+	Messages         []Message      `json:"messages,omitempty"`
+	BotID            string         `json:"bot_id,omitempty"`
+	AgentID          string         `json:"agent_id,omitempty"`
+	RunID            string         `json:"run_id,omitempty"`
 	Metadata         map[string]any `json:"metadata,omitempty"`
 	Filters          map[string]any `json:"filters,omitempty"`
-	Infer            *bool                  `json:"infer,omitempty"`
-	EmbeddingEnabled *bool                  `json:"embedding_enabled,omitempty"`
+	Infer            *bool          `json:"infer,omitempty"`
+	EmbeddingEnabled *bool          `json:"embedding_enabled,omitempty"`
 }
 
 type SearchRequest struct {
-	Query            string                 `json:"query"`
-	BotID            string                 `json:"bot_id,omitempty"`
-	SessionID        string                 `json:"session_id,omitempty"`
-	AgentID          string                 `json:"agent_id,omitempty"`
-	RunID            string                 `json:"run_id,omitempty"`
-	Limit            int                    `json:"limit,omitempty"`
+	Query            string         `json:"query"`
+	BotID            string         `json:"bot_id,omitempty"`
+	AgentID          string         `json:"agent_id,omitempty"`
+	RunID            string         `json:"run_id,omitempty"`
+	Limit            int            `json:"limit,omitempty"`
 	Filters          map[string]any `json:"filters,omitempty"`
-	Sources          []string               `json:"sources,omitempty"`
-	EmbeddingEnabled *bool                  `json:"embedding_enabled,omitempty"`
+	Sources          []string       `json:"sources,omitempty"`
+	EmbeddingEnabled *bool          `json:"embedding_enabled,omitempty"`
 }
 
 type UpdateRequest struct {
@@ -46,18 +44,18 @@ type UpdateRequest struct {
 }
 
 type GetAllRequest struct {
-	BotID     string `json:"bot_id,omitempty"`
-	SessionID string `json:"session_id,omitempty"`
-	AgentID   string `json:"agent_id,omitempty"`
-	RunID     string `json:"run_id,omitempty"`
-	Limit     int    `json:"limit,omitempty"`
+	BotID   string         `json:"bot_id,omitempty"`
+	AgentID string         `json:"agent_id,omitempty"`
+	RunID   string         `json:"run_id,omitempty"`
+	Limit   int            `json:"limit,omitempty"`
+	Filters map[string]any `json:"filters,omitempty"`
 }
 
 type DeleteAllRequest struct {
-	BotID     string `json:"bot_id,omitempty"`
-	SessionID string `json:"session_id,omitempty"`
-	AgentID   string `json:"agent_id,omitempty"`
-	RunID     string `json:"run_id,omitempty"`
+	BotID   string         `json:"bot_id,omitempty"`
+	AgentID string         `json:"agent_id,omitempty"`
+	RunID   string         `json:"run_id,omitempty"`
+	Filters map[string]any `json:"filters,omitempty"`
 }
 
 type EmbedInput struct {
@@ -67,17 +65,16 @@ type EmbedInput struct {
 }
 
 type EmbedUpsertRequest struct {
-	Type      string                 `json:"type"`
-	Provider  string                 `json:"provider,omitempty"`
-	Model     string                 `json:"model,omitempty"`
-	Input     EmbedInput             `json:"input"`
-	Source    string                 `json:"source,omitempty"`
-	BotID     string                 `json:"bot_id,omitempty"`
-	SessionID string                 `json:"session_id,omitempty"`
-	AgentID   string                 `json:"agent_id,omitempty"`
-	RunID     string                 `json:"run_id,omitempty"`
-	Metadata  map[string]any `json:"metadata,omitempty"`
-	Filters   map[string]any `json:"filters,omitempty"`
+	Type     string         `json:"type"`
+	Provider string         `json:"provider,omitempty"`
+	Model    string         `json:"model,omitempty"`
+	Input    EmbedInput     `json:"input"`
+	Source   string         `json:"source,omitempty"`
+	BotID    string         `json:"bot_id,omitempty"`
+	AgentID  string         `json:"agent_id,omitempty"`
+	RunID    string         `json:"run_id,omitempty"`
+	Metadata map[string]any `json:"metadata,omitempty"`
+	Filters  map[string]any `json:"filters,omitempty"`
 }
 
 type EmbedUpsertResponse struct {
@@ -88,17 +85,16 @@ type EmbedUpsertResponse struct {
 }
 
 type MemoryItem struct {
-	ID        string                 `json:"id"`
-	Memory    string                 `json:"memory"`
-	Hash      string                 `json:"hash,omitempty"`
-	CreatedAt string                 `json:"createdAt,omitempty"`
-	UpdatedAt string                 `json:"updatedAt,omitempty"`
-	Score     float64                `json:"score,omitempty"`
+	ID        string         `json:"id"`
+	Memory    string         `json:"memory"`
+	Hash      string         `json:"hash,omitempty"`
+	CreatedAt string         `json:"createdAt,omitempty"`
+	UpdatedAt string         `json:"updatedAt,omitempty"`
+	Score     float64        `json:"score,omitempty"`
 	Metadata  map[string]any `json:"metadata,omitempty"`
-	BotID     string                 `json:"botId,omitempty"`
-	SessionID string                 `json:"sessionId,omitempty"`
-	AgentID   string                 `json:"agentId,omitempty"`
-	RunID     string                 `json:"runId,omitempty"`
+	BotID     string         `json:"botId,omitempty"`
+	AgentID   string         `json:"agentId,omitempty"`
+	RunID     string         `json:"runId,omitempty"`
 }
 
 type SearchResponse struct {
@@ -111,7 +107,7 @@ type DeleteResponse struct {
 }
 
 type ExtractRequest struct {
-	Messages []Message              `json:"messages"`
+	Messages []Message      `json:"messages"`
 	Filters  map[string]any `json:"filters,omitempty"`
 	Metadata map[string]any `json:"metadata,omitempty"`
 }
@@ -121,16 +117,16 @@ type ExtractResponse struct {
 }
 
 type CandidateMemory struct {
-	ID       string                 `json:"id"`
-	Memory   string                 `json:"memory"`
+	ID       string         `json:"id"`
+	Memory   string         `json:"memory"`
 	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 type DecideRequest struct {
-	Facts      []string               `json:"facts"`
-	Candidates []CandidateMemory      `json:"candidates"`
-	Filters    map[string]any `json:"filters,omitempty"`
-	Metadata   map[string]any `json:"metadata,omitempty"`
+	Facts      []string          `json:"facts"`
+	Candidates []CandidateMemory `json:"candidates"`
+	Filters    map[string]any    `json:"filters,omitempty"`
+	Metadata   map[string]any    `json:"metadata,omitempty"`
 }
 
 type DecisionAction struct {

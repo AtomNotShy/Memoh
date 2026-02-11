@@ -8,27 +8,30 @@ import (
 	"strings"
 	"time"
 
+	"github.com/memohai/memoh/internal/bind"
 	"github.com/memohai/memoh/internal/channel"
-	"github.com/memohai/memoh/internal/contacts"
-	"github.com/memohai/memoh/internal/policy"
+	"github.com/memohai/memoh/internal/channelidentities"
 	"github.com/memohai/memoh/internal/preauth"
 )
 
+// IdentityDecision indicates whether the inbound message should be stopped with an optional reply.
 type IdentityDecision struct {
 	Stop  bool
 	Reply channel.Message
 }
 
+// InboundIdentity carries the resolved channel identity for an inbound message.
 type InboundIdentity struct {
-	BotID           string
-	SessionID       string
-	ChannelConfigID string
-	ExternalID      string
-	UserID          string
-	ContactID       string
-	Contact         contacts.Contact
+	BotID             string
+	ChannelConfigID   string
+	SubjectID         string
+	ChannelIdentityID string
+	UserID            string
+	DisplayName       string
+	ForceReply        bool
 }
 
+// IdentityState bundles resolved identity with an optional early-exit decision.
 type IdentityState struct {
 	Identity InboundIdentity
 	Decision *IdentityDecision
@@ -36,10 +39,12 @@ type IdentityState struct {
 
 type identityContextKey struct{}
 
+// WithIdentityState stores IdentityState in the context.
 func WithIdentityState(ctx context.Context, state IdentityState) context.Context {
 	return context.WithValue(ctx, identityContextKey{}, state)
 }
 
+// IdentityStateFromContext retrieves IdentityState from the context.
 func IdentityStateFromContext(ctx context.Context) (IdentityState, bool) {
 	if ctx == nil {
 		return IdentityState{}, false
@@ -52,54 +57,88 @@ func IdentityStateFromContext(ctx context.Context) (IdentityState, bool) {
 	return state, ok
 }
 
-// IdentityStore is the minimal persistence interface required by IdentityResolver.
-type IdentityStore interface {
-	channel.BindingStore
-	channel.SessionStore
+// ChannelIdentityService is the minimal interface for channel identity resolution.
+type ChannelIdentityService interface {
+	ResolveByChannelIdentity(ctx context.Context, channel, channelSubjectID, displayName string) (channelidentities.ChannelIdentity, error)
+	Canonicalize(ctx context.Context, channelIdentityID string) (string, error)
+	GetLinkedUserID(ctx context.Context, channelIdentityID string) (string, error)
+	LinkChannelIdentityToUser(ctx context.Context, channelIdentityID, userID string) error
 }
 
-type IdentityResolver struct {
-	registry     *channel.Registry
-	store        IdentityStore
-	contacts     ContactService
-	policy       PolicyService
-	preauth      PreauthService
-	logger       *slog.Logger
-	unboundReply string
-	preauthReply string
+// BotMemberService checks and manages bot membership.
+type BotMemberService interface {
+	IsMember(ctx context.Context, botID, channelIdentityID string) (bool, error)
+	UpsertMemberSimple(ctx context.Context, botID, channelIdentityID, role string) error
 }
 
+// PolicyService resolves access policy for a bot.
 type PolicyService interface {
-	Resolve(ctx context.Context, botID string) (policy.Decision, error)
+	AllowGuest(ctx context.Context, botID string) (bool, error)
+	BotType(ctx context.Context, botID string) (string, error)
+	BotOwnerUserID(ctx context.Context, botID string) (string, error)
 }
 
+// PreauthService handles preauth key validation.
 type PreauthService interface {
 	Get(ctx context.Context, token string) (preauth.Key, error)
 	MarkUsed(ctx context.Context, id string) (preauth.Key, error)
 }
 
-func NewIdentityResolver(log *slog.Logger, registry *channel.Registry, store IdentityStore, contacts ContactService, policyService PolicyService, preauthService PreauthService, unboundReply, preauthReply string) *IdentityResolver {
+// BindService handles channel identity bind code validation and consumption.
+type BindService interface {
+	Get(ctx context.Context, token string) (bind.Code, error)
+	Consume(ctx context.Context, code bind.Code, channelIdentityID string) error
+}
+
+// IdentityResolver implements identity resolution with bind code, preauth, and guest fallback.
+type IdentityResolver struct {
+	registry          *channel.Registry
+	channelIdentities ChannelIdentityService
+	members           BotMemberService
+	policy            PolicyService
+	preauth           PreauthService
+	bind              BindService
+	logger            *slog.Logger
+	unboundReply      string
+	preauthReply      string
+	bindReply         string
+}
+
+// NewIdentityResolver creates an IdentityResolver.
+func NewIdentityResolver(
+	log *slog.Logger,
+	registry *channel.Registry,
+	channelIdentityService ChannelIdentityService,
+	memberService BotMemberService,
+	policyService PolicyService,
+	preauthService PreauthService,
+	bindService BindService,
+	unboundReply, preauthReply string,
+) *IdentityResolver {
 	if log == nil {
 		log = slog.Default()
 	}
 	if strings.TrimSpace(unboundReply) == "" {
-		unboundReply = "当前不允许陌生人访问，请联系管理员。"
+		unboundReply = "Access denied. Please contact the administrator."
 	}
 	if strings.TrimSpace(preauthReply) == "" {
-		preauthReply = "授权成功，请继续使用。"
+		preauthReply = "Authorization successful."
 	}
 	return &IdentityResolver{
-		registry:     registry,
-		store:        store,
-		contacts:     contacts,
-		policy:       policyService,
-		preauth:      preauthService,
-		logger:       log.With(slog.String("component", "channel_identity")),
-		unboundReply: unboundReply,
-		preauthReply: preauthReply,
+		registry:          registry,
+		channelIdentities: channelIdentityService,
+		members:           memberService,
+		policy:            policyService,
+		preauth:           preauthService,
+		bind:              bindService,
+		logger:            log.With(slog.String("component", "channel_identity")),
+		unboundReply:      unboundReply,
+		preauthReply:      preauthReply,
+		bindReply:         "Binding successful! Your identity has been linked.",
 	}
 }
 
+// Middleware returns a channel middleware that resolves identity before processing.
 func (r *IdentityResolver) Middleware() channel.Middleware {
 	return func(next channel.InboundHandler) channel.InboundHandler {
 		return func(ctx context.Context, cfg channel.ChannelConfig, msg channel.InboundMessage) error {
@@ -112,8 +151,11 @@ func (r *IdentityResolver) Middleware() channel.Middleware {
 	}
 }
 
+// Resolve performs two-phase identity resolution:
+//  1. Global identity: (channel, channel_subject_id) -> channel_identity_id (unconditional)
+//  2. Authorization: bot membership check with guest/preauth fallback
 func (r *IdentityResolver) Resolve(ctx context.Context, cfg channel.ChannelConfig, msg channel.InboundMessage) (IdentityState, error) {
-	if r.store == nil || r.contacts == nil || r.policy == nil {
+	if r.channelIdentities == nil {
 		return IdentityState{}, fmt.Errorf("identity resolver not configured")
 	}
 
@@ -121,111 +163,120 @@ func (r *IdentityResolver) Resolve(ctx context.Context, cfg channel.ChannelConfi
 	if botID == "" {
 		botID = cfg.BotID
 	}
-	normalizedMsg := msg
-	normalizedMsg.BotID = botID
 
-	sessionID := normalizedMsg.SessionID()
 	channelConfigID := cfg.ID
 	if r.registry != nil && r.registry.IsConfigless(msg.Channel) {
 		channelConfigID = ""
 	}
-	externalID := extractExternalIdentity(msg)
+	subjectID := extractSubjectIdentity(msg)
+	displayName := extractDisplayName(msg)
 
 	state := IdentityState{
 		Identity: InboundIdentity{
 			BotID:           botID,
-			SessionID:       sessionID,
 			ChannelConfigID: channelConfigID,
-			ExternalID:      externalID,
+			SubjectID:       subjectID,
 		},
 	}
 
-	session, err := r.store.GetChannelSession(ctx, sessionID)
-	if err != nil && r.logger != nil {
-		r.logger.Error("get user by session failed", slog.String("session_id", sessionID), slog.Any("error", err))
-	}
-	userID := strings.TrimSpace(session.UserID)
-	contactID := strings.TrimSpace(session.ContactID)
-
-	if userID == "" {
-		userID, err = r.store.ResolveUserBinding(ctx, msg.Channel, channel.BindingCriteriaFromIdentity(msg.Sender))
-		if err == nil && userID != "" {
-			_ = r.store.UpsertChannelSession(ctx, sessionID, botID, channelConfigID, userID, contactID, string(msg.Channel), strings.TrimSpace(msg.ReplyTarget), extractThreadID(msg), buildSessionMetadata(msg))
-		}
+	// Phase 1: Global identity resolution (unconditional).
+	if subjectID == "" {
+		return state, fmt.Errorf("cannot resolve identity: no channel_subject_id")
 	}
 
-	var contact contacts.Contact
-	if contactID == "" && userID != "" {
-		contact, err = r.contacts.GetByUserID(ctx, botID, userID)
-		if err != nil {
-			displayName := extractDisplayName(msg)
-			contact, err = r.contacts.Create(ctx, contacts.CreateRequest{
-				BotID:       botID,
-				UserID:      userID,
-				DisplayName: displayName,
-				Status:      "active",
-			})
-		}
-		if err == nil {
-			contactID = contact.ID
-			if externalID != "" {
-				_, _ = r.contacts.UpsertChannel(ctx, botID, contactID, msg.Channel.String(), externalID, nil)
-			}
-		}
+	channelIdentity, err := r.channelIdentities.ResolveByChannelIdentity(ctx, msg.Channel.String(), subjectID, displayName)
+	if err != nil {
+		return state, fmt.Errorf("resolve channel identity: %w", err)
 	}
 
-	if contactID == "" && externalID != "" {
-		binding, err := r.contacts.GetByChannelIdentity(ctx, botID, msg.Channel.String(), externalID)
-		if err == nil {
-			contactID = binding.ContactID
-		}
+	channelIdentityID := strings.TrimSpace(channelIdentity.ID)
+	state.Identity.ChannelIdentityID = channelIdentityID
+	linkedUserID, err := r.channelIdentities.GetLinkedUserID(ctx, channelIdentityID)
+	if err != nil {
+		return state, err
 	}
+	state.Identity.UserID = strings.TrimSpace(linkedUserID)
+	if strings.TrimSpace(state.Identity.UserID) == "" {
+		state.Identity.UserID = r.tryLinkConfiglessChannelIdentityToUser(ctx, msg, channelIdentityID)
+	}
+	state.Identity.DisplayName = displayName
 
-	if contactID == "" {
-		decision, err := r.policy.Resolve(ctx, botID)
+	// Bind code check runs before membership/guest checks so linking is always reachable.
+	if handled, decision, newUserID, err := r.tryHandleBindCode(ctx, msg, channelIdentityID, subjectID); handled {
+		if strings.TrimSpace(newUserID) != "" {
+			state.Identity.UserID = strings.TrimSpace(newUserID)
+		}
+		state.Decision = &decision
+		return state, err
+	}
+	if r.policy != nil && isGroupConversationType(msg.Conversation.Type) {
+		botType, err := r.policy.BotType(ctx, botID)
 		if err != nil {
 			return state, err
 		}
-		if decision.AllowGuest {
-			displayName := extractDisplayName(msg)
-			contact, err = r.contacts.CreateGuest(ctx, botID, displayName)
-			if err == nil {
-				contactID = contact.ID
-				if externalID != "" {
-					_, _ = r.contacts.UpsertChannel(ctx, botID, contactID, msg.Channel.String(), externalID, nil)
-				}
-			}
-		} else {
-			if handled, decision, err := r.tryHandlePreauthKey(ctx, normalizedMsg, externalID); handled {
-				state.Decision = &decision
+		if strings.EqualFold(strings.TrimSpace(botType), "personal") {
+			ownerUserID, err := r.policy.BotOwnerUserID(ctx, botID)
+			if err != nil {
 				return state, err
 			}
-			state.Decision = &IdentityDecision{
-				Stop:  true,
-				Reply: channel.Message{Text: r.unboundReply},
+			if strings.TrimSpace(state.Identity.UserID) == "" || strings.TrimSpace(ownerUserID) != strings.TrimSpace(state.Identity.UserID) {
+				// Personal bots in group chats only answer owner messages.
+				state.Decision = &IdentityDecision{Stop: true}
+				return state, nil
+			}
+			// Owner can chat normally in group for personal bots.
+			state.Identity.ForceReply = true
+		}
+	}
+
+	// Phase 2: Authorization (bot membership check).
+	if r.members != nil {
+		if strings.TrimSpace(state.Identity.UserID) != "" {
+			isMember, _ := r.members.IsMember(ctx, botID, state.Identity.UserID)
+			if isMember {
+				return state, nil
+			}
+		}
+	}
+	if r.policy != nil && strings.TrimSpace(state.Identity.UserID) != "" {
+		ownerUserID, err := r.policy.BotOwnerUserID(ctx, botID)
+		if err != nil {
+			return state, err
+		}
+		// Bot owner should not depend on bot_members linkage.
+		if strings.TrimSpace(ownerUserID) == strings.TrimSpace(state.Identity.UserID) {
+			return state, nil
+		}
+	}
+
+	// Guest policy check.
+	if r.policy != nil {
+		allowed, err := r.policy.AllowGuest(ctx, botID)
+		if err != nil {
+			return state, err
+		}
+		if allowed {
+			if r.members != nil && strings.TrimSpace(state.Identity.UserID) != "" {
+				_ = r.members.UpsertMemberSimple(ctx, botID, state.Identity.UserID, "member")
 			}
 			return state, nil
 		}
 	}
 
-	if contactID != "" && contact.ID == "" {
-		loaded, err := r.contacts.GetByID(ctx, contactID)
-		if err == nil {
-			contact = loaded
-		}
+	// Preauth key check.
+	if handled, decision, err := r.tryHandlePreauthKey(ctx, msg, botID, state.Identity.UserID, subjectID); handled {
+		state.Decision = &decision
+		return state, err
 	}
 
-	if contactID != "" {
-		_ = r.store.UpsertChannelSession(ctx, sessionID, botID, channelConfigID, userID, contactID, string(msg.Channel), strings.TrimSpace(msg.ReplyTarget), extractThreadID(msg), buildSessionMetadata(msg))
+	state.Decision = &IdentityDecision{
+		Stop:  true,
+		Reply: channel.Message{Text: r.unboundReply},
 	}
-
-	state.Identity.UserID = userID
-	state.Identity.ContactID = contactID
-	state.Identity.Contact = contact
 	return state, nil
 }
 
-func (r *IdentityResolver) tryHandlePreauthKey(ctx context.Context, msg channel.InboundMessage, externalID string) (bool, IdentityDecision, error) {
+func (r *IdentityResolver) tryHandlePreauthKey(ctx context.Context, msg channel.InboundMessage, botID, userID, subjectID string) (bool, IdentityDecision, error) {
 	tokenText := strings.TrimSpace(msg.Message.PlainText())
 	if tokenText == "" || r.preauth == nil {
 		return false, IdentityDecision{}, nil
@@ -244,33 +295,87 @@ func (r *IdentityResolver) tryHandlePreauthKey(ctx context.Context, msg channel.
 		}
 	}
 	if !key.UsedAt.IsZero() {
-		return true, reply("预授权码已使用。"), nil
+		return true, reply("Preauth key already used."), nil
 	}
 	if !key.ExpiresAt.IsZero() && time.Now().UTC().After(key.ExpiresAt) {
-		return true, reply("预授权码已过期，请重新获取。"), nil
+		return true, reply("Preauth key expired."), nil
 	}
-	if key.BotID != msg.BotID {
-		return true, reply("预授权码不匹配。"), nil
+	if key.BotID != botID {
+		return true, reply("Preauth key mismatch."), nil
 	}
-	if externalID == "" {
-		return true, reply("无法识别当前账号，授权失败。"), nil
+	if subjectID == "" {
+		return true, reply("Cannot identify current account."), nil
 	}
-	displayName := extractDisplayName(msg)
-	contact, err := r.contacts.CreateGuest(ctx, msg.BotID, displayName)
-	if err != nil {
-		return true, reply("授权失败，请稍后重试。"), nil
+
+	// Grant membership via preauth.
+	if strings.TrimSpace(userID) == "" {
+		return true, reply("Current channel account is not linked to a user."), nil
 	}
-	if _, err := r.contacts.UpsertChannel(ctx, msg.BotID, contact.ID, msg.Channel.String(), externalID, nil); err != nil {
-		return true, reply("授权失败，请稍后重试。"), nil
+	if r.members != nil {
+		_ = r.members.UpsertMemberSimple(ctx, botID, userID, "member")
 	}
-	_ = r.store.UpsertChannelSession(ctx, msg.SessionID(), msg.BotID, "", "", contact.ID, msg.Channel.String(), strings.TrimSpace(msg.ReplyTarget), extractThreadID(msg), buildSessionMetadata(msg))
 	_, _ = r.preauth.MarkUsed(ctx, key.ID)
 	return true, reply(r.preauthReply), nil
 }
 
-func extractExternalIdentity(msg channel.InboundMessage) string {
-	if strings.TrimSpace(msg.Sender.ExternalID) != "" {
-		return strings.TrimSpace(msg.Sender.ExternalID)
+func (r *IdentityResolver) tryHandleBindCode(ctx context.Context, msg channel.InboundMessage, channelIdentityID, subjectID string) (bool, IdentityDecision, string, error) {
+	tokenText := strings.TrimSpace(msg.Message.PlainText())
+	if tokenText == "" || r.bind == nil {
+		return false, IdentityDecision{}, "", nil
+	}
+	code, err := r.bind.Get(ctx, tokenText)
+	if err != nil {
+		if errors.Is(err, bind.ErrCodeNotFound) {
+			return false, IdentityDecision{}, "", nil
+		}
+		return true, IdentityDecision{}, "", err
+	}
+	reply := func(text string) IdentityDecision {
+		return IdentityDecision{Stop: true, Reply: channel.Message{Text: text}}
+	}
+	if !code.UsedAt.IsZero() {
+		return true, reply("Bind code already used."), "", nil
+	}
+	if !code.ExpiresAt.IsZero() && time.Now().UTC().After(code.ExpiresAt) {
+		return true, reply("Bind code expired."), "", nil
+	}
+	if strings.TrimSpace(code.Platform) != "" && !strings.EqualFold(strings.TrimSpace(code.Platform), msg.Channel.String()) {
+		return true, reply("Bind code mismatch."), "", nil
+	}
+	if subjectID == "" {
+		return true, reply("Cannot identify current account."), "", nil
+	}
+
+	// Consume: mark used + link source channel identity to issuer user.
+	if err := r.bind.Consume(ctx, code, channelIdentityID); err != nil {
+		switch {
+		case errors.Is(err, bind.ErrCodeUsed):
+			return true, reply("Bind code already used."), "", nil
+		case errors.Is(err, bind.ErrCodeExpired):
+			return true, reply("Bind code expired."), "", nil
+		case errors.Is(err, bind.ErrCodeMismatch):
+			return true, reply("Bind code mismatch."), "", nil
+		case errors.Is(err, bind.ErrLinkConflict):
+			return true, reply("Current identity has already been linked to another account."), "", nil
+		default:
+			return true, IdentityDecision{}, "", fmt.Errorf("consume bind code: %w", err)
+		}
+	}
+
+	// Resolve linked user after binding.
+	newUserID := code.IssuedByUserID
+	if r.channelIdentities != nil {
+		if linkedUserID, err := r.channelIdentities.GetLinkedUserID(ctx, channelIdentityID); err == nil && strings.TrimSpace(linkedUserID) != "" {
+			newUserID = linkedUserID
+		}
+	}
+
+	return true, reply(r.bindReply), newUserID, nil
+}
+
+func extractSubjectIdentity(msg channel.InboundMessage) string {
+	if strings.TrimSpace(msg.Sender.SubjectID) != "" {
+		return strings.TrimSpace(msg.Sender.SubjectID)
 	}
 	if value := strings.TrimSpace(msg.Sender.Attribute("open_id")); value != "" {
 		return value
@@ -288,8 +393,8 @@ func extractDisplayName(msg channel.InboundMessage) string {
 	if strings.TrimSpace(msg.Sender.DisplayName) != "" {
 		return strings.TrimSpace(msg.Sender.DisplayName)
 	}
-	if strings.TrimSpace(msg.Sender.ExternalID) != "" {
-		return strings.TrimSpace(msg.Sender.ExternalID)
+	if strings.TrimSpace(msg.Sender.SubjectID) != "" {
+		return strings.TrimSpace(msg.Sender.SubjectID)
 	}
 	if value := strings.TrimSpace(msg.Sender.Attribute("username")); value != "" {
 		return value
@@ -311,6 +416,39 @@ func extractThreadID(msg channel.InboundMessage) string {
 		return strings.TrimSpace(msg.Conversation.ThreadID)
 	}
 	return ""
+}
+
+func isGroupConversationType(conversationType string) bool {
+	ct := strings.ToLower(strings.TrimSpace(conversationType))
+	if ct == "" {
+		return false
+	}
+	return ct != "p2p" && ct != "private" && ct != "direct"
+}
+
+func (r *IdentityResolver) tryLinkConfiglessChannelIdentityToUser(ctx context.Context, msg channel.InboundMessage, channelIdentityID string) string {
+	if r.registry == nil || !r.registry.IsConfigless(msg.Channel) {
+		return ""
+	}
+	if r.channelIdentities == nil {
+		return ""
+	}
+	candidateUserID := strings.TrimSpace(msg.Sender.Attribute("user_id"))
+	if candidateUserID == "" {
+		return ""
+	}
+	if err := r.channelIdentities.LinkChannelIdentityToUser(ctx, channelIdentityID, candidateUserID); err != nil {
+		if r.logger != nil {
+			r.logger.Warn("auto link configless channel identity failed",
+				slog.String("channel", msg.Channel.String()),
+				slog.String("channel_identity_id", channelIdentityID),
+				slog.String("user_id", candidateUserID),
+				slog.Any("error", err),
+			)
+		}
+		return ""
+	}
+	return candidateUserID
 }
 
 func buildSessionMetadata(msg channel.InboundMessage) map[string]any {

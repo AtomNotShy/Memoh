@@ -449,6 +449,7 @@ func extractFeishuInbound(event *larkim.P2MessageReceiveV1) channel.InboundMessa
 	if message.Content != nil {
 		_ = json.Unmarshal([]byte(*message.Content), &contentMap)
 	}
+	isMentioned := hasFeishuMention(contentMap)
 
 	if message.MessageType != nil {
 		switch *message.MessageType {
@@ -512,9 +513,9 @@ func extractFeishuInbound(event *larkim.P2MessageReceiveV1) channel.InboundMessa
 	if senderOpenID != "" {
 		attrs["open_id"] = senderOpenID
 	}
-	externalID := senderOpenID
-	if externalID == "" {
-		externalID = senderID
+	subjectID := senderOpenID
+	if subjectID == "" {
+		subjectID = senderID
 	}
 
 	return channel.InboundMessage{
@@ -522,7 +523,7 @@ func extractFeishuInbound(event *larkim.P2MessageReceiveV1) channel.InboundMessa
 		Message:     msg,
 		ReplyTarget: replyTo,
 		Sender: channel.Identity{
-			ExternalID:  externalID,
+			SubjectID:   subjectID,
 			DisplayName: senderOpenID,
 			Attributes:  attrs,
 		},
@@ -532,6 +533,27 @@ func extractFeishuInbound(event *larkim.P2MessageReceiveV1) channel.InboundMessa
 		},
 		ReceivedAt: time.Now().UTC(),
 		Source:     "feishu",
+		Metadata: map[string]any{
+			"is_mentioned": isMentioned,
+		},
+	}
+}
+
+func hasFeishuMention(contentMap map[string]any) bool {
+	if len(contentMap) == 0 {
+		return false
+	}
+	raw, ok := contentMap["mentions"]
+	if !ok {
+		return false
+	}
+	switch mentions := raw.(type) {
+	case []any:
+		return len(mentions) > 0
+	case []map[string]any:
+		return len(mentions) > 0
+	default:
+		return false
 	}
 }
 

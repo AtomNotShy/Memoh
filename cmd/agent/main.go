@@ -8,20 +8,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/memohai/memoh/internal/accounts"
+	"github.com/memohai/memoh/internal/bind"
 	"github.com/memohai/memoh/internal/bots"
 	"github.com/memohai/memoh/internal/channel"
 	"github.com/memohai/memoh/internal/channel/adapters/feishu"
 	"github.com/memohai/memoh/internal/channel/adapters/local"
 	"github.com/memohai/memoh/internal/channel/adapters/telegram"
+	"github.com/memohai/memoh/internal/channelidentities"
 	"github.com/memohai/memoh/internal/chat"
 	"github.com/memohai/memoh/internal/config"
-	"github.com/memohai/memoh/internal/contacts"
 	ctr "github.com/memohai/memoh/internal/containerd"
 	"github.com/memohai/memoh/internal/db"
 	dbsqlc "github.com/memohai/memoh/internal/db/sqlc"
 	"github.com/memohai/memoh/internal/embeddings"
 	"github.com/memohai/memoh/internal/handlers"
-	"github.com/memohai/memoh/internal/history"
 	"github.com/memohai/memoh/internal/logger"
 	"github.com/memohai/memoh/internal/mcp"
 	"github.com/memohai/memoh/internal/memory"
@@ -34,7 +35,6 @@ import (
 	"github.com/memohai/memoh/internal/server"
 	"github.com/memohai/memoh/internal/settings"
 	"github.com/memohai/memoh/internal/subagent"
-	"github.com/memohai/memoh/internal/users"
 	"github.com/memohai/memoh/internal/version"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -96,9 +96,9 @@ func main() {
 	queries := dbsqlc.New(conn)
 	modelsService := models.NewService(logger.L, queries)
 	botService := bots.NewService(logger.L, queries)
-	usersService := users.NewService(logger.L, queries)
+	accountService := accounts.NewService(logger.L, queries)
 
-	containerdHandler := handlers.NewContainerdHandler(logger.L, service, cfg.MCP, cfg.Containerd.Namespace, botService, usersService, queries)
+	containerdHandler := handlers.NewContainerdHandler(logger.L, service, cfg.MCP, cfg.Containerd.Namespace, botService, accountService, queries)
 	botService.SetContainerLifecycle(containerdHandler)
 
 	if err := ensureAdminUser(ctx, logger.L, queries, cfg); err != nil {
@@ -106,7 +106,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	authHandler := handlers.NewAuthHandler(logger.L, usersService, cfg.Auth.JWTSecret, jwtExpiresIn)
+	authHandler := handlers.NewAuthHandler(logger.L, accountService, cfg.Auth.JWTSecret, jwtExpiresIn)
 
 	// Initialize chat resolver after memory service is configured.
 	var chatResolver *chat.Resolver
@@ -134,7 +134,6 @@ func main() {
 
 	bm25Indexer := memory.NewBM25Indexer(logger.L)
 	memoryService := memory.NewService(logger.L, llmClient, textEmbedder, store, resolver, bm25Indexer, textModel.ModelID, multimodalModel.ModelID)
-	memoryHandler := handlers.NewMemoryHandler(logger.L, memoryService, botService, usersService)
 	go func() {
 		if err := memoryService.WarmupBM25(ctx, 200); err != nil {
 			logger.Warn("bm25 warmup failed", slog.Any("error", err))
@@ -145,23 +144,23 @@ func main() {
 	providersService := providers.NewService(logger.L, queries)
 	providersHandler := handlers.NewProvidersHandler(logger.L, providersService, modelsService)
 	settingsService := settings.NewService(logger.L, queries)
-	settingsHandler := handlers.NewSettingsHandler(logger.L, settingsService, botService, usersService)
+	settingsHandler := handlers.NewSettingsHandler(logger.L, settingsService, botService, accountService)
 	modelsHandler := handlers.NewModelsHandler(logger.L, modelsService, settingsService)
 	policyService := policy.NewService(logger.L, botService, settingsService)
-	historyService := history.NewService(logger.L, queries)
-	historyHandler := handlers.NewHistoryHandler(logger.L, historyService, botService, usersService)
-	contactsService := contacts.NewService(queries)
-	contactsHandler := handlers.NewContactsHandler(contactsService, botService, usersService)
+	chatService := chat.NewService(logger.L, queries)
+	memoryHandler := handlers.NewMemoryHandler(logger.L, memoryService, chatService, accountService)
+	actorService := channelidentities.NewService(logger.L, queries)
 	preauthService := preauth.NewService(queries)
-	preauthHandler := handlers.NewPreauthHandler(preauthService, botService, usersService)
+	preauthHandler := handlers.NewPreauthHandler(preauthService, botService, accountService)
+	bindService := bind.NewService(logger.L, conn, queries)
+	bindHandler := handlers.NewBindHandler(logger.L, bindService)
 	mcpConnectionsService := mcp.NewConnectionService(logger.L, queries)
-	mcpHandler := handlers.NewMCPHandler(logger.L, mcpConnectionsService, botService, usersService)
-
-	chatResolver = chat.NewResolver(logger.L, modelsService, queries, memoryService, historyService, settingsService, mcpConnectionsService, cfg.AgentGateway.BaseURL(), 120*time.Second)
+	mcpHandler := handlers.NewMCPHandler(logger.L, mcpConnectionsService, botService, accountService)
+	chatResolver = chat.NewResolver(logger.L, modelsService, queries, memoryService, chatService, settingsService, mcpConnectionsService, cfg.AgentGateway.BaseURL(), 120*time.Second)
 	chatResolver.SetSkillLoader(&skillLoaderAdapter{handler: containerdHandler})
 	embeddingsHandler := handlers.NewEmbeddingsHandler(logger.L, modelsService, queries)
 	swaggerHandler := handlers.NewSwaggerHandler(logger.L)
-	chatHandler := handlers.NewChatHandler(logger.L, chatResolver, botService, usersService)
+	chatHandler := handlers.NewChatHandler(logger.L, chatResolver, chatService, botService, accountService)
 	channelRegistry := channel.NewRegistry()
 	sessionHub := local.NewSessionHub()
 	channelRegistry.MustRegister(telegram.NewTelegramAdapter(logger.L))
@@ -169,26 +168,26 @@ func main() {
 	channelRegistry.MustRegister(local.NewCLIAdapter(sessionHub))
 	channelRegistry.MustRegister(local.NewWebAdapter(sessionHub))
 	channelService := channel.NewService(queries, channelRegistry)
-	channelRouter := router.NewChannelInboundProcessor(logger.L, channelRegistry, channelService, chatResolver, contactsService, policyService, preauthService, cfg.Auth.JWTSecret, 5*time.Minute)
+	channelRouter := router.NewChannelInboundProcessor(logger.L, channelRegistry, chatService, chatResolver, actorService, botService, policyService, preauthService, bindService, cfg.Auth.JWTSecret, 5*time.Minute)
 	channelManager := channel.NewManager(logger.L, channelRegistry, channelService, channelRouter)
 	if mw := channelRouter.IdentityMiddleware(); mw != nil {
 		channelManager.Use(mw)
 	}
 	channelManager.Start(ctx)
 	channelHandler := handlers.NewChannelHandler(channelService, channelRegistry)
-	usersHandler := handlers.NewUsersHandler(logger.L, usersService, botService, channelService, channelManager, channelRegistry)
-	cliHandler := handlers.NewLocalChannelHandler(local.CLIType, channelManager, channelService, sessionHub, botService, usersService)
-	webHandler := handlers.NewLocalChannelHandler(local.WebType, channelManager, channelService, sessionHub, botService, usersService)
+	usersHandler := handlers.NewUsersHandler(logger.L, accountService, actorService, botService, chatService, channelService, channelManager, channelRegistry)
+	cliHandler := handlers.NewLocalChannelHandler(local.CLIType, channelManager, channelService, chatService, sessionHub, botService, accountService)
+	webHandler := handlers.NewLocalChannelHandler(local.WebType, channelManager, channelService, chatService, sessionHub, botService, accountService)
 	scheduleGateway := chat.NewScheduleGateway(chatResolver)
 	scheduleService := schedule.NewService(logger.L, queries, scheduleGateway, cfg.Auth.JWTSecret)
 	if err := scheduleService.Bootstrap(ctx); err != nil {
 		logger.Error("schedule bootstrap", slog.Any("error", err))
 		os.Exit(1)
 	}
-	scheduleHandler := handlers.NewScheduleHandler(logger.L, scheduleService, botService, usersService)
+	scheduleHandler := handlers.NewScheduleHandler(logger.L, scheduleService, botService, accountService)
 	subagentService := subagent.NewService(logger.L, queries)
-	subagentHandler := handlers.NewSubagentHandler(logger.L, subagentService, botService, usersService)
-	srv := server.NewServer(logger.L, addr, cfg.Auth.JWTSecret, pingHandler, authHandler, memoryHandler, embeddingsHandler, chatHandler, swaggerHandler, providersHandler, modelsHandler, settingsHandler, historyHandler, contactsHandler, preauthHandler, scheduleHandler, subagentHandler, containerdHandler, channelHandler, usersHandler, mcpHandler, cliHandler, webHandler)
+	subagentHandler := handlers.NewSubagentHandler(logger.L, subagentService, botService, accountService)
+	srv := server.NewServer(logger.L, addr, cfg.Auth.JWTSecret, pingHandler, authHandler, memoryHandler, embeddingsHandler, chatHandler, swaggerHandler, providersHandler, modelsHandler, settingsHandler, preauthHandler, bindHandler, scheduleHandler, subagentHandler, containerdHandler, channelHandler, usersHandler, mcpHandler, cliHandler, webHandler)
 
 	if err := srv.Start(); err != nil {
 		logger.Error("server failed", slog.Any("error", err))
@@ -249,7 +248,7 @@ func ensureAdminUser(ctx context.Context, log *slog.Logger, queries *dbsqlc.Quer
 	if queries == nil {
 		return fmt.Errorf("db queries not configured")
 	}
-	count, err := queries.CountUsers(ctx)
+	count, err := queries.CountAccounts(ctx)
 	if err != nil {
 		return err
 	}
@@ -272,6 +271,14 @@ func ensureAdminUser(ctx context.Context, log *slog.Logger, queries *dbsqlc.Quer
 		return err
 	}
 
+	user, err := queries.CreateUser(ctx, dbsqlc.CreateUserParams{
+		IsActive: true,
+		Metadata: []byte("{}"),
+	})
+	if err != nil {
+		return fmt.Errorf("create admin user: %w", err)
+	}
+
 	emailValue := pgtype.Text{Valid: false}
 	if email != "" {
 		emailValue = pgtype.Text{String: email, Valid: true}
@@ -279,10 +286,11 @@ func ensureAdminUser(ctx context.Context, log *slog.Logger, queries *dbsqlc.Quer
 	displayName := pgtype.Text{String: username, Valid: true}
 	dataRoot := pgtype.Text{String: cfg.MCP.DataRoot, Valid: cfg.MCP.DataRoot != ""}
 
-	_, err = queries.CreateUser(ctx, dbsqlc.CreateUserParams{
-		Username:     username,
+	_, err = queries.CreateAccount(ctx, dbsqlc.CreateAccountParams{
+		UserID:       user.ID,
+		Username:     pgtype.Text{String: username, Valid: true},
 		Email:        emailValue,
-		PasswordHash: string(hashed),
+		PasswordHash: pgtype.Text{String: string(hashed), Valid: true},
 		Role:         "admin",
 		DisplayName:  displayName,
 		AvatarUrl:    pgtype.Text{Valid: false},

@@ -1,4 +1,4 @@
-package users
+package accounts
 
 import (
 	"context"
@@ -16,6 +16,7 @@ import (
 	"github.com/memohai/memoh/internal/db/sqlc"
 )
 
+// Service provides account (credential) management for users.
 type Service struct {
 	queries *sqlc.Queries
 	logger  *slog.Logger
@@ -24,120 +25,125 @@ type Service struct {
 var (
 	ErrInvalidPassword    = errors.New("invalid password")
 	ErrInvalidCredentials = errors.New("invalid credentials")
-	ErrInactiveUser       = errors.New("user is inactive")
+	ErrInactiveAccount    = errors.New("account is inactive")
 )
 
+// NewService creates a new accounts service.
 func NewService(log *slog.Logger, queries *sqlc.Queries) *Service {
 	if log == nil {
 		log = slog.Default()
 	}
 	return &Service{
 		queries: queries,
-		logger:  log.With(slog.String("service", "users")),
+		logger:  log.With(slog.String("service", "accounts")),
 	}
 }
 
-func (s *Service) Get(ctx context.Context, userID string) (User, error) {
+// Get returns an account by user id.
+func (s *Service) Get(ctx context.Context, userID string) (Account, error) {
 	if s.queries == nil {
-		return User{}, fmt.Errorf("user queries not configured")
+		return Account{}, fmt.Errorf("account queries not configured")
 	}
 	pgID, err := parseUUID(userID)
 	if err != nil {
-		return User{}, err
+		return Account{}, err
 	}
-	row, err := s.queries.GetUserByID(ctx, pgID)
+	row, err := s.queries.GetAccountByUserID(ctx, pgID)
 	if err != nil {
-		return User{}, err
+		return Account{}, err
 	}
-	return toUser(row), nil
+	return toAccount(row), nil
 }
 
-func (s *Service) Login(ctx context.Context, identity, password string) (User, error) {
+// Login authenticates by identity (username or email) and password.
+func (s *Service) Login(ctx context.Context, identity, password string) (Account, error) {
 	if s.queries == nil {
-		return User{}, fmt.Errorf("user queries not configured")
+		return Account{}, fmt.Errorf("account queries not configured")
 	}
 	identity = strings.TrimSpace(identity)
 	if identity == "" || strings.TrimSpace(password) == "" {
-		return User{}, ErrInvalidCredentials
+		return Account{}, ErrInvalidCredentials
 	}
-	row, err := s.queries.GetUserByIdentity(ctx, identity)
+	row, err := s.queries.GetAccountByIdentity(ctx, pgtype.Text{String: identity, Valid: true})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return User{}, ErrInvalidCredentials
+			return Account{}, ErrInvalidCredentials
 		}
-		return User{}, err
+		return Account{}, err
 	}
 	if !row.IsActive {
-		return User{}, ErrInactiveUser
+		return Account{}, ErrInactiveAccount
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(row.PasswordHash), []byte(password)); err != nil {
-		return User{}, ErrInvalidCredentials
+	if !row.PasswordHash.Valid {
+		return Account{}, ErrInvalidCredentials
 	}
-	if _, err := s.queries.UpdateUserLastLogin(ctx, row.ID); err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(row.PasswordHash.String), []byte(password)); err != nil {
+		return Account{}, ErrInvalidCredentials
+	}
+	if _, err := s.queries.UpdateAccountLastLogin(ctx, row.ID); err != nil {
 		if s.logger != nil {
 			s.logger.Warn("touch last login failed", slog.Any("error", err))
 		}
 	}
-	return toUser(row), nil
+	return toAccount(row), nil
 }
 
-func (s *Service) ListUsers(ctx context.Context) ([]User, error) {
+// ListAccounts returns all accounts.
+func (s *Service) ListAccounts(ctx context.Context) ([]Account, error) {
 	if s.queries == nil {
-		return nil, fmt.Errorf("user queries not configured")
+		return nil, fmt.Errorf("account queries not configured")
 	}
-	rows, err := s.queries.ListUsers(ctx)
+	rows, err := s.queries.ListAccounts(ctx)
 	if err != nil {
 		return nil, err
 	}
-	items := make([]User, 0, len(rows))
+	items := make([]Account, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, toUser(row))
+		items = append(items, toAccount(row))
 	}
 	return items, nil
 }
 
-func (s *Service) ListUsersByType(ctx context.Context, userType string) ([]User, error) {
-	if s.queries == nil {
-		return nil, fmt.Errorf("user queries not configured")
-	}
-	return nil, fmt.Errorf("user type filtering is not supported")
-}
-
+// IsAdmin checks if the user has admin role.
 func (s *Service) IsAdmin(ctx context.Context, userID string) (bool, error) {
 	if s.queries == nil {
-		return false, fmt.Errorf("user queries not configured")
+		return false, fmt.Errorf("account queries not configured")
 	}
 	pgID, err := parseUUID(userID)
 	if err != nil {
 		return false, err
 	}
-	row, err := s.queries.GetUserByID(ctx, pgID)
+	row, err := s.queries.GetAccountByUserID(ctx, pgID)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
 		return false, err
 	}
 	return isAdminRole(row.Role), nil
 }
 
-func (s *Service) CreateHuman(ctx context.Context, req CreateUserRequest) (User, error) {
+// Create creates a new account for an existing user.
+func (s *Service) Create(ctx context.Context, userID string, req CreateAccountRequest) (Account, error) {
 	if s.queries == nil {
-		return User{}, fmt.Errorf("user queries not configured")
+		return Account{}, fmt.Errorf("account queries not configured")
 	}
 	username := strings.TrimSpace(req.Username)
 	if username == "" {
-		return User{}, fmt.Errorf("username is required")
+		return Account{}, fmt.Errorf("username is required")
 	}
 	password := strings.TrimSpace(req.Password)
 	if password == "" {
-		return User{}, fmt.Errorf("password is required")
+		return Account{}, fmt.Errorf("password is required")
 	}
 	role, err := normalizeRole(req.Role)
 	if err != nil {
-		return User{}, err
+		return Account{}, err
 	}
 
 	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return User{}, err
+		return Account{}, err
 	}
 
 	displayName := strings.TrimSpace(req.DisplayName)
@@ -151,6 +157,10 @@ func (s *Service) CreateHuman(ctx context.Context, req CreateUserRequest) (User,
 		isActive = *req.IsActive
 	}
 
+	pgUserID, err := parseUUID(userID)
+	if err != nil {
+		return Account{}, err
+	}
 	emailValue := pgtype.Text{Valid: false}
 	if email != "" {
 		emailValue = pgtype.Text{String: email, Valid: true}
@@ -161,10 +171,11 @@ func (s *Service) CreateHuman(ctx context.Context, req CreateUserRequest) (User,
 		avatarValue = pgtype.Text{String: avatarURL, Valid: true}
 	}
 
-	row, err := s.queries.CreateUser(ctx, sqlc.CreateUserParams{
-		Username:     username,
+	row, err := s.queries.CreateAccount(ctx, sqlc.CreateAccountParams{
+		UserID:       pgUserID,
+		Username:     pgtype.Text{String: username, Valid: true},
 		Email:        emailValue,
-		PasswordHash: string(hashed),
+		PasswordHash: pgtype.Text{String: string(hashed), Valid: true},
 		Role:         role,
 		DisplayName:  displayValue,
 		AvatarUrl:    avatarValue,
@@ -172,28 +183,51 @@ func (s *Service) CreateHuman(ctx context.Context, req CreateUserRequest) (User,
 		DataRoot:     pgtype.Text{Valid: false},
 	})
 	if err != nil {
-		return User{}, err
+		return Account{}, err
 	}
-	return toUser(row), nil
+	return toAccount(row), nil
 }
 
-func (s *Service) UpdateUserAdmin(ctx context.Context, userID string, req UpdateUserRequest) (User, error) {
+// CreateHuman keeps compatibility with older call sites.
+func (s *Service) CreateHuman(ctx context.Context, userID string, req CreateAccountRequest) (Account, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		if s.queries == nil {
+			return Account{}, fmt.Errorf("account queries not configured")
+		}
+		userRow, err := s.queries.CreateUser(ctx, sqlc.CreateUserParams{
+			IsActive: true,
+			Metadata: []byte("{}"),
+		})
+		if err != nil {
+			return Account{}, err
+		}
+		if !userRow.ID.Valid {
+			return Account{}, fmt.Errorf("create user: invalid id")
+		}
+		userID = uuid.UUID(userRow.ID.Bytes).String()
+	}
+	return s.Create(ctx, userID, req)
+}
+
+// UpdateAdmin updates account fields as admin.
+func (s *Service) UpdateAdmin(ctx context.Context, userID string, req UpdateAccountRequest) (Account, error) {
 	if s.queries == nil {
-		return User{}, fmt.Errorf("user queries not configured")
+		return Account{}, fmt.Errorf("account queries not configured")
 	}
 	pgID, err := parseUUID(userID)
 	if err != nil {
-		return User{}, err
+		return Account{}, err
 	}
-	existing, err := s.queries.GetUserByID(ctx, pgID)
+	existing, err := s.queries.GetAccountByUserID(ctx, pgID)
 	if err != nil {
-		return User{}, err
+		return Account{}, err
 	}
 	role := fmt.Sprint(existing.Role)
 	if req.Role != nil {
 		role, err = normalizeRole(*req.Role)
 		if err != nil {
-			return User{}, err
+			return Account{}, err
 		}
 	}
 	displayName := strings.TrimSpace(existing.DisplayName.String)
@@ -201,7 +235,7 @@ func (s *Service) UpdateUserAdmin(ctx context.Context, userID string, req Update
 		displayName = strings.TrimSpace(*req.DisplayName)
 	}
 	if displayName == "" {
-		displayName = existing.Username
+		displayName = strings.TrimSpace(existing.Username.String)
 	}
 	avatarURL := strings.TrimSpace(existing.AvatarUrl.String)
 	if req.AvatarURL != nil {
@@ -212,57 +246,59 @@ func (s *Service) UpdateUserAdmin(ctx context.Context, userID string, req Update
 		isActive = *req.IsActive
 	}
 
-	row, err := s.queries.UpdateUserAdmin(ctx, sqlc.UpdateUserAdminParams{
-		ID:          pgID,
+	row, err := s.queries.UpdateAccountAdmin(ctx, sqlc.UpdateAccountAdminParams{
+		UserID:      pgID,
 		Role:        role,
 		DisplayName: pgtype.Text{String: displayName, Valid: displayName != ""},
 		AvatarUrl:   pgtype.Text{String: avatarURL, Valid: avatarURL != ""},
 		IsActive:    isActive,
 	})
 	if err != nil {
-		return User{}, err
+		return Account{}, err
 	}
-	return toUser(row), nil
+	return toAccount(row), nil
 }
 
-func (s *Service) UpdateProfile(ctx context.Context, userID string, req UpdateProfileRequest) (User, error) {
+// UpdateProfile updates the user's profile.
+func (s *Service) UpdateProfile(ctx context.Context, userID string, req UpdateProfileRequest) (Account, error) {
 	if s.queries == nil {
-		return User{}, fmt.Errorf("user queries not configured")
+		return Account{}, fmt.Errorf("account queries not configured")
 	}
 	pgID, err := parseUUID(userID)
 	if err != nil {
-		return User{}, err
+		return Account{}, err
 	}
-	existing, err := s.queries.GetUserByID(ctx, pgID)
+	existing, err := s.queries.GetAccountByUserID(ctx, pgID)
 	if err != nil {
-		return User{}, err
+		return Account{}, err
 	}
 	displayName := strings.TrimSpace(existing.DisplayName.String)
 	if req.DisplayName != nil {
 		displayName = strings.TrimSpace(*req.DisplayName)
 	}
 	if displayName == "" {
-		displayName = existing.Username
+		displayName = strings.TrimSpace(existing.Username.String)
 	}
 	avatarURL := strings.TrimSpace(existing.AvatarUrl.String)
 	if req.AvatarURL != nil {
 		avatarURL = strings.TrimSpace(*req.AvatarURL)
 	}
-	row, err := s.queries.UpdateUserProfile(ctx, sqlc.UpdateUserProfileParams{
+	row, err := s.queries.UpdateAccountProfile(ctx, sqlc.UpdateAccountProfileParams{
 		ID:          pgID,
 		DisplayName: pgtype.Text{String: displayName, Valid: displayName != ""},
 		AvatarUrl:   pgtype.Text{String: avatarURL, Valid: avatarURL != ""},
 		IsActive:    existing.IsActive,
 	})
 	if err != nil {
-		return User{}, err
+		return Account{}, err
 	}
-	return toUser(row), nil
+	return toAccount(row), nil
 }
 
+// UpdatePassword changes the password after verifying the current one.
 func (s *Service) UpdatePassword(ctx context.Context, userID, currentPassword, newPassword string) error {
 	if s.queries == nil {
-		return fmt.Errorf("user queries not configured")
+		return fmt.Errorf("account queries not configured")
 	}
 	if strings.TrimSpace(newPassword) == "" {
 		return fmt.Errorf("new password is required")
@@ -271,30 +307,34 @@ func (s *Service) UpdatePassword(ctx context.Context, userID, currentPassword, n
 	if err != nil {
 		return err
 	}
-	existing, err := s.queries.GetUserByID(ctx, pgID)
+	existing, err := s.queries.GetAccountByUserID(ctx, pgID)
 	if err != nil {
 		return err
 	}
 	if strings.TrimSpace(currentPassword) == "" {
 		return ErrInvalidPassword
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(existing.PasswordHash), []byte(currentPassword)); err != nil {
+	if !existing.PasswordHash.Valid {
+		return ErrInvalidPassword
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(existing.PasswordHash.String), []byte(currentPassword)); err != nil {
 		return ErrInvalidPassword
 	}
 	hashed, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
-	_, err = s.queries.UpdateUserPassword(ctx, sqlc.UpdateUserPasswordParams{
+	_, err = s.queries.UpdateAccountPassword(ctx, sqlc.UpdateAccountPasswordParams{
 		ID:           pgID,
-		PasswordHash: string(hashed),
+		PasswordHash: pgtype.Text{String: string(hashed), Valid: true},
 	})
 	return err
 }
 
+// ResetPassword sets a new password without requiring the current one.
 func (s *Service) ResetPassword(ctx context.Context, userID, newPassword string) error {
 	if s.queries == nil {
-		return fmt.Errorf("user queries not configured")
+		return fmt.Errorf("account queries not configured")
 	}
 	if strings.TrimSpace(newPassword) == "" {
 		return fmt.Errorf("new password is required")
@@ -307,9 +347,9 @@ func (s *Service) ResetPassword(ctx context.Context, userID, newPassword string)
 	if err != nil {
 		return err
 	}
-	_, err = s.queries.UpdateUserPassword(ctx, sqlc.UpdateUserPasswordParams{
+	_, err = s.queries.UpdateAccountPassword(ctx, sqlc.UpdateAccountPasswordParams{
 		ID:           pgID,
-		PasswordHash: string(hashed),
+		PasswordHash: pgtype.Text{String: string(hashed), Valid: true},
 	})
 	return err
 }
@@ -339,7 +379,8 @@ func isAdminRole(role any) bool {
 	}
 }
 
-func toUser(row sqlc.User) User {
+func toAccount(row sqlc.User) Account {
+	username := strings.TrimSpace(row.Username.String)
 	email := ""
 	if row.Email.Valid {
 		email = row.Email.String
@@ -347,6 +388,9 @@ func toUser(row sqlc.User) User {
 	displayName := ""
 	if row.DisplayName.Valid {
 		displayName = row.DisplayName.String
+	}
+	if displayName == "" {
+		displayName = username
 	}
 	avatarURL := ""
 	if row.AvatarUrl.Valid {
@@ -364,9 +408,9 @@ func toUser(row sqlc.User) User {
 	if row.LastLoginAt.Valid {
 		lastLogin = row.LastLoginAt.Time
 	}
-	return User{
+	return Account{
 		ID:          toUUIDString(row.ID),
-		Username:    row.Username,
+		Username:    username,
 		Email:       email,
 		Role:        fmt.Sprint(row.Role),
 		DisplayName: displayName,

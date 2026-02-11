@@ -24,12 +24,18 @@ import {
   faCheck,
   faEye,
   faEyeSlash,
-  faChevronRight,
+  faChevronDown,
+  faEllipsisVertical,
+  faNetworkWired,
+  faPlug,
+  faUser,
+  faArrowLeft,
 } from '@fortawesome/free-solid-svg-icons'
 import {
   faRectangleList,
   faTrashCan,
   faComments,
+  faComment,
 } from '@fortawesome/free-regular-svg-icons'
 
 library.add(
@@ -44,10 +50,16 @@ library.add(
   faCheck,
   faEye,
   faEyeSlash,
-  faChevronRight,
+  faChevronDown,
+  faEllipsisVertical,
+  faNetworkWired,
+  faPlug,
+  faUser,
+  faArrowLeft,
   faRectangleList,
   faTrashCan,
   faComments,
+  faComment,
 )
 
 createApp(App)

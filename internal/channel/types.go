@@ -17,7 +17,7 @@ func (c ChannelType) String() string {
 
 // Identity represents a sender's identity on a channel.
 type Identity struct {
-	ExternalID  string
+	SubjectID   string
 	DisplayName string
 	Attributes  map[string]string
 }
@@ -59,7 +59,7 @@ func (m InboundMessage) SessionID() string {
 	if strings.TrimSpace(m.SessionKey) != "" {
 		return strings.TrimSpace(m.SessionKey)
 	}
-	senderID := strings.TrimSpace(m.Sender.ExternalID)
+	senderID := strings.TrimSpace(m.Sender.SubjectID)
 	if senderID == "" {
 		senderID = strings.TrimSpace(m.Sender.DisplayName)
 	}
@@ -118,14 +118,14 @@ const (
 
 // MessagePart is a single element within a rich-text message.
 type MessagePart struct {
-	Type     MessagePartType    `json:"type"`
-	Text     string             `json:"text,omitempty"`
-	URL      string             `json:"url,omitempty"`
-	Styles   []MessageTextStyle `json:"styles,omitempty"`
-	Language string             `json:"language,omitempty"`
-	UserID   string             `json:"user_id,omitempty"`
-	Emoji    string             `json:"emoji,omitempty"`
-	Metadata map[string]any     `json:"metadata,omitempty"`
+	Type              MessagePartType    `json:"type"`
+	Text              string             `json:"text,omitempty"`
+	URL               string             `json:"url,omitempty"`
+	Styles            []MessageTextStyle `json:"styles,omitempty"`
+	Language          string             `json:"language,omitempty"`
+	ChannelIdentityID string             `json:"channel_identity_id,omitempty"`
+	Emoji             string             `json:"emoji,omitempty"`
+	Metadata          map[string]any     `json:"metadata,omitempty"`
 }
 
 // AttachmentType classifies the kind of binary attachment.
@@ -227,7 +227,7 @@ func (m Message) PlainText() string {
 
 // BindingCriteria specifies conditions for matching a user-channel binding.
 type BindingCriteria struct {
-	ExternalID string
+	SubjectID  string
 	Attributes map[string]string
 }
 
@@ -242,7 +242,7 @@ func (c BindingCriteria) Attribute(key string) string {
 // BindingCriteriaFromIdentity creates BindingCriteria from a channel Identity.
 func BindingCriteriaFromIdentity(identity Identity) BindingCriteria {
 	return BindingCriteria{
-		ExternalID: strings.TrimSpace(identity.ExternalID),
+		SubjectID:  strings.TrimSpace(identity.SubjectID),
 		Attributes: identity.Attributes,
 	}
 }
@@ -262,14 +262,14 @@ type ChannelConfig struct {
 	UpdatedAt        time.Time
 }
 
-// ChannelUserBinding represents a user's binding to a specific channel type.
-type ChannelUserBinding struct {
-	ID          string
-	ChannelType ChannelType
-	UserID      string
-	Config      map[string]any
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+// ChannelIdentityBinding represents a channel identity's binding to a specific channel type.
+type ChannelIdentityBinding struct {
+	ID                string
+	ChannelType       ChannelType
+	ChannelIdentityID string
+	Config            map[string]any
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 // UpsertConfigRequest is the input for creating or updating a channel configuration.
@@ -282,29 +282,14 @@ type UpsertConfigRequest struct {
 	VerifiedAt       *time.Time     `json:"verified_at,omitempty"`
 }
 
-// UpsertUserConfigRequest is the input for creating or updating a user-channel binding.
-type UpsertUserConfigRequest struct {
+// UpsertChannelIdentityConfigRequest is the input for creating or updating a channel-identity binding.
+type UpsertChannelIdentityConfigRequest struct {
 	Config map[string]any `json:"config"`
-}
-
-// ChannelSession tracks an active conversation session on a channel.
-type ChannelSession struct {
-	SessionID       string
-	BotID           string
-	ChannelConfigID string
-	UserID          string
-	ContactID       string
-	Platform        string
-	ReplyTarget     string
-	ThreadID        string
-	Metadata        map[string]any
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
 }
 
 // SendRequest is the input for sending an outbound message through a channel.
 type SendRequest struct {
-	Target  string  `json:"target,omitempty"`
-	UserID  string  `json:"user_id,omitempty"`
-	Message Message `json:"message"`
+	Target            string  `json:"target,omitempty"`
+	ChannelIdentityID string  `json:"channel_identity_id,omitempty"`
+	Message           Message `json:"message"`
 }

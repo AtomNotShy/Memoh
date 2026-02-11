@@ -10,37 +10,42 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
+	"github.com/memohai/memoh/internal/accounts"
 	"github.com/memohai/memoh/internal/auth"
 	"github.com/memohai/memoh/internal/bots"
 	"github.com/memohai/memoh/internal/channel"
 	"github.com/memohai/memoh/internal/channel/adapters/local"
+	"github.com/memohai/memoh/internal/chat"
 	"github.com/memohai/memoh/internal/identity"
-	"github.com/memohai/memoh/internal/users"
 )
 
+// LocalChannelHandler handles local channel (CLI/Web) sessions backed by chats.
 type LocalChannelHandler struct {
 	channelType    channel.ChannelType
 	channelManager *channel.Manager
 	channelService *channel.Service
+	chatService    *chat.Service
 	sessionHub     *local.SessionHub
 	botService     *bots.Service
-	userService    *users.Service
+	accountService *accounts.Service
 }
 
-func NewLocalChannelHandler(channelType channel.ChannelType, channelManager *channel.Manager, channelService *channel.Service, sessionHub *local.SessionHub, botService *bots.Service, userService *users.Service) *LocalChannelHandler {
+// NewLocalChannelHandler creates a local channel handler.
+func NewLocalChannelHandler(channelType channel.ChannelType, channelManager *channel.Manager, channelService *channel.Service, chatService *chat.Service, sessionHub *local.SessionHub, botService *bots.Service, accountService *accounts.Service) *LocalChannelHandler {
 	return &LocalChannelHandler{
 		channelType:    channelType,
 		channelManager: channelManager,
 		channelService: channelService,
+		chatService:    chatService,
 		sessionHub:     sessionHub,
 		botService:     botService,
-		userService:    userService,
+		accountService: accountService,
 	}
 }
 
+// Register registers the local channel routes.
 func (h *LocalChannelHandler) Register(e *echo.Echo) {
 	prefix := fmt.Sprintf("/bots/:bot_id/%s", h.channelType.String())
 	group := e.Group(prefix)
@@ -51,11 +56,13 @@ func (h *LocalChannelHandler) Register(e *echo.Echo) {
 
 type localSessionResponse struct {
 	SessionID string `json:"session_id"`
+	ChatID    string `json:"chat_id"`
 	StreamURL string `json:"stream_url"`
 }
 
+// CreateSession creates a new local chat session.
 func (h *LocalChannelHandler) CreateSession(c echo.Context) error {
-	userID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
@@ -63,22 +70,27 @@ func (h *LocalChannelHandler) CreateSession(c echo.Context) error {
 	if botID == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
 	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+	if _, err := h.authorizeBotAccess(c.Request().Context(), channelIdentityID, botID); err != nil {
 		return err
 	}
-	if h.channelService == nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "channel service not configured")
-	}
-	sessionID := fmt.Sprintf("%s:%s", h.channelType.String(), uuid.NewString())
-	if err := h.channelService.UpsertChannelSession(c.Request().Context(), sessionID, botID, "", userID, "", h.channelType.String(), sessionID, "", nil); err != nil {
+
+	// Create a chat as the underlying container.
+	chatObj, err := h.chatService.Create(c.Request().Context(), botID, channelIdentityID, chat.CreateChatRequest{
+		Kind: chat.KindDirect,
+	})
+	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+
+	// Use chat_id as the session_id for the local hub.
+	sessionID := chatObj.ID
 	streamURL := fmt.Sprintf("/bots/%s/%s/sessions/%s/stream", botID, h.channelType.String(), sessionID)
-	return c.JSON(http.StatusOK, localSessionResponse{SessionID: sessionID, StreamURL: streamURL})
+	return c.JSON(http.StatusOK, localSessionResponse{SessionID: sessionID, ChatID: chatObj.ID, StreamURL: streamURL})
 }
 
+// StreamSession streams responses for a local session.
 func (h *LocalChannelHandler) StreamSession(c echo.Context) error {
-	userID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
@@ -90,10 +102,10 @@ func (h *LocalChannelHandler) StreamSession(c echo.Context) error {
 	if sessionID == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "session id is required")
 	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+	if _, err := h.authorizeBotAccess(c.Request().Context(), channelIdentityID, botID); err != nil {
 		return err
 	}
-	if err := h.ensureSessionOwner(c.Request().Context(), botID, sessionID, userID); err != nil {
+	if err := h.ensureChatParticipant(c.Request().Context(), sessionID, channelIdentityID); err != nil {
 		return err
 	}
 	if h.sessionHub == nil {
@@ -141,8 +153,9 @@ type localMessageRequest struct {
 	Message channel.Message `json:"message"`
 }
 
+// PostMessage sends a message through the local channel.
 func (h *LocalChannelHandler) PostMessage(c echo.Context) error {
-	userID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
@@ -154,10 +167,10 @@ func (h *LocalChannelHandler) PostMessage(c echo.Context) error {
 	if sessionID == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "session id is required")
 	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+	if _, err := h.authorizeBotAccess(c.Request().Context(), channelIdentityID, botID); err != nil {
 		return err
 	}
-	if err := h.ensureSessionOwner(c.Request().Context(), botID, sessionID, userID); err != nil {
+	if err := h.ensureChatParticipant(c.Request().Context(), sessionID, channelIdentityID); err != nil {
 		return err
 	}
 	if h.channelManager == nil || h.channelService == nil {
@@ -182,9 +195,9 @@ func (h *LocalChannelHandler) PostMessage(c echo.Context) error {
 		ReplyTarget: sessionID,
 		SessionKey:  sessionID,
 		Sender: channel.Identity{
-			ExternalID: userID,
+			SubjectID: channelIdentityID,
 			Attributes: map[string]string{
-				"user_id": userID,
+				"user_id": channelIdentityID,
 			},
 		},
 		Conversation: channel.Conversation{
@@ -200,46 +213,40 @@ func (h *LocalChannelHandler) PostMessage(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (h *LocalChannelHandler) ensureSessionOwner(ctx context.Context, botID, sessionID, userID string) error {
-	if h.channelService == nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "channel service not configured")
+func (h *LocalChannelHandler) ensureChatParticipant(ctx context.Context, chatID, channelIdentityID string) error {
+	if h.chatService == nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "chat service not configured")
 	}
-	session, err := h.channelService.GetChannelSession(ctx, sessionID)
+	ok, err := h.chatService.IsParticipant(ctx, chatID, channelIdentityID)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	if strings.TrimSpace(session.SessionID) == "" {
-		return echo.NewHTTPError(http.StatusNotFound, "session not found")
-	}
-	if session.BotID != botID {
-		return echo.NewHTTPError(http.StatusForbidden, "session access denied")
-	}
-	if session.UserID != userID {
-		return echo.NewHTTPError(http.StatusForbidden, "session access denied")
+	if !ok {
+		return echo.NewHTTPError(http.StatusForbidden, "chat access denied")
 	}
 	return nil
 }
 
-func (h *LocalChannelHandler) requireUserID(c echo.Context) (string, error) {
-	userID, err := auth.UserIDFromContext(c)
+func (h *LocalChannelHandler) requireChannelIdentityID(c echo.Context) (string, error) {
+	channelIdentityID, err := auth.ChannelIdentityIDFromContext(c)
 	if err != nil {
 		return "", err
 	}
-	if err := identity.ValidateUserID(userID); err != nil {
+	if err := identity.ValidateChannelIdentityID(channelIdentityID); err != nil {
 		return "", echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	return userID, nil
+	return channelIdentityID, nil
 }
 
-func (h *LocalChannelHandler) authorizeBotAccess(ctx context.Context, actorID, botID string) (bots.Bot, error) {
-	if h.botService == nil || h.userService == nil {
+func (h *LocalChannelHandler) authorizeBotAccess(ctx context.Context, channelIdentityID, botID string) (bots.Bot, error) {
+	if h.botService == nil || h.accountService == nil {
 		return bots.Bot{}, echo.NewHTTPError(http.StatusInternalServerError, "bot services not configured")
 	}
-	isAdmin, err := h.userService.IsAdmin(ctx, actorID)
+	isAdmin, err := h.accountService.IsAdmin(ctx, channelIdentityID)
 	if err != nil {
 		return bots.Bot{}, echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	bot, err := h.botService.AuthorizeAccess(ctx, actorID, botID, isAdmin, bots.AccessPolicy{AllowPublicMember: true})
+	bot, err := h.botService.AuthorizeAccess(ctx, channelIdentityID, botID, isAdmin, bots.AccessPolicy{AllowPublicMember: true})
 	if err != nil {
 		if errors.Is(err, bots.ErrBotNotFound) {
 			return bots.Bot{}, echo.NewHTTPError(http.StatusNotFound, "bot not found")

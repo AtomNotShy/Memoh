@@ -3,14 +3,18 @@ import { chatModule } from './modules/chat'
 import { corsMiddleware } from './middlewares/cors'
 import { errorMiddleware } from './middlewares/error'
 import { loadConfig } from './config'
-import { join } from 'path'
 
 const config = loadConfig('../config.toml')
 
 export const getBraveConfig = () => {
+  const apiKey = config.brave?.api_key?.trim() ?? ''
+  if (!apiKey) {
+    return undefined
+  }
+  const baseUrl = config.brave?.base_url?.trim() || 'https://api.search.brave.com/res/v1/'
   return {
-    apiKey: config.brave.api_key ?? '',
-    baseUrl: config.brave.base_url ?? 'https://api.search.brave.com/res/v1/',
+    apiKey,
+    baseUrl,
   }
 }
 
@@ -36,11 +40,16 @@ export const createAuthFetcher = (bearer: string | undefined): AuthFetcher => {
   return async (url: string, options?: RequestInit) => {
     const requestOptions = options ?? {}
     const headers = new Headers(requestOptions.headers || {})
-    if (bearer) {
+    if (bearer && !headers.has('Authorization')) {
       headers.set('Authorization', `Bearer ${bearer}`)
     }
 
-    return await fetch(join(getBaseUrl(), url), {
+    const baseURL = getBaseUrl()
+    const requestURL = /^https?:\/\//i.test(url)
+      ? url
+      : new URL(url, `${baseURL.replace(/\/$/, '')}/`).toString()
+
+    return await fetch(requestURL, {
       ...requestOptions,
       headers,
     })

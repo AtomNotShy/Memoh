@@ -9,26 +9,26 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/memohai/memoh/internal/accounts"
 	"github.com/memohai/memoh/internal/auth"
 	"github.com/memohai/memoh/internal/bots"
 	"github.com/memohai/memoh/internal/identity"
 	"github.com/memohai/memoh/internal/subagent"
-	"github.com/memohai/memoh/internal/users"
 )
 
 type SubagentHandler struct {
-	service     *subagent.Service
-	botService  *bots.Service
-	userService *users.Service
-	logger      *slog.Logger
+	service        *subagent.Service
+	botService     *bots.Service
+	accountService *accounts.Service
+	logger         *slog.Logger
 }
 
-func NewSubagentHandler(log *slog.Logger, service *subagent.Service, botService *bots.Service, userService *users.Service) *SubagentHandler {
+func NewSubagentHandler(log *slog.Logger, service *subagent.Service, botService *bots.Service, accountService *accounts.Service) *SubagentHandler {
 	return &SubagentHandler{
-		service:     service,
-		botService:  botService,
-		userService: userService,
-		logger:      log.With(slog.String("handler", "subagent")),
+		service:        service,
+		botService:     botService,
+		accountService: accountService,
+		logger:         log.With(slog.String("handler", "subagent")),
 	}
 }
 
@@ -56,7 +56,7 @@ func (h *SubagentHandler) Register(e *echo.Echo) {
 // @Failure 500 {object} ErrorResponse
 // @Router /bots/{bot_id}/subagents [post]
 func (h *SubagentHandler) Create(c echo.Context) error {
-	userID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
@@ -64,7 +64,7 @@ func (h *SubagentHandler) Create(c echo.Context) error {
 	if botID == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
 	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+	if _, err := h.authorizeBotAccess(c.Request().Context(), channelIdentityID, botID); err != nil {
 		return err
 	}
 	var req subagent.CreateRequest
@@ -87,7 +87,7 @@ func (h *SubagentHandler) Create(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /bots/{bot_id}/subagents [get]
 func (h *SubagentHandler) List(c echo.Context) error {
-	userID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
@@ -95,7 +95,7 @@ func (h *SubagentHandler) List(c echo.Context) error {
 	if botID == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
 	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+	if _, err := h.authorizeBotAccess(c.Request().Context(), channelIdentityID, botID); err != nil {
 		return err
 	}
 	items, err := h.service.List(c.Request().Context(), botID)
@@ -116,7 +116,7 @@ func (h *SubagentHandler) List(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /bots/{bot_id}/subagents/{id} [get]
 func (h *SubagentHandler) Get(c echo.Context) error {
-	userID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
@@ -135,7 +135,7 @@ func (h *SubagentHandler) Get(c echo.Context) error {
 	if item.BotID != botID {
 		return echo.NewHTTPError(http.StatusForbidden, "bot mismatch")
 	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+	if _, err := h.authorizeBotAccess(c.Request().Context(), channelIdentityID, botID); err != nil {
 		return err
 	}
 	return c.JSON(http.StatusOK, item)
@@ -153,7 +153,7 @@ func (h *SubagentHandler) Get(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /bots/{bot_id}/subagents/{id} [put]
 func (h *SubagentHandler) Update(c echo.Context) error {
-	userID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
@@ -176,7 +176,7 @@ func (h *SubagentHandler) Update(c echo.Context) error {
 	if item.BotID != botID {
 		return echo.NewHTTPError(http.StatusForbidden, "bot mismatch")
 	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+	if _, err := h.authorizeBotAccess(c.Request().Context(), channelIdentityID, botID); err != nil {
 		return err
 	}
 	resp, err := h.service.Update(c.Request().Context(), id, req)
@@ -197,7 +197,7 @@ func (h *SubagentHandler) Update(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /bots/{bot_id}/subagents/{id} [delete]
 func (h *SubagentHandler) Delete(c echo.Context) error {
-	userID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
@@ -216,7 +216,7 @@ func (h *SubagentHandler) Delete(c echo.Context) error {
 	if item.BotID != botID {
 		return echo.NewHTTPError(http.StatusForbidden, "bot mismatch")
 	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+	if _, err := h.authorizeBotAccess(c.Request().Context(), channelIdentityID, botID); err != nil {
 		return err
 	}
 	if err := h.service.Delete(c.Request().Context(), id); err != nil {
@@ -236,7 +236,7 @@ func (h *SubagentHandler) Delete(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /bots/{bot_id}/subagents/{id}/context [get]
 func (h *SubagentHandler) GetContext(c echo.Context) error {
-	userID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
@@ -255,7 +255,7 @@ func (h *SubagentHandler) GetContext(c echo.Context) error {
 	if item.BotID != botID {
 		return echo.NewHTTPError(http.StatusForbidden, "bot mismatch")
 	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+	if _, err := h.authorizeBotAccess(c.Request().Context(), channelIdentityID, botID); err != nil {
 		return err
 	}
 	return c.JSON(http.StatusOK, subagent.ContextResponse{Messages: item.Messages})
@@ -273,7 +273,7 @@ func (h *SubagentHandler) GetContext(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /bots/{bot_id}/subagents/{id}/context [put]
 func (h *SubagentHandler) UpdateContext(c echo.Context) error {
-	userID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
@@ -296,7 +296,7 @@ func (h *SubagentHandler) UpdateContext(c echo.Context) error {
 	if item.BotID != botID {
 		return echo.NewHTTPError(http.StatusForbidden, "bot mismatch")
 	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+	if _, err := h.authorizeBotAccess(c.Request().Context(), channelIdentityID, botID); err != nil {
 		return err
 	}
 	updated, err := h.service.UpdateContext(c.Request().Context(), id, req)
@@ -317,7 +317,7 @@ func (h *SubagentHandler) UpdateContext(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /bots/{bot_id}/subagents/{id}/skills [get]
 func (h *SubagentHandler) GetSkills(c echo.Context) error {
-	userID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
@@ -336,7 +336,7 @@ func (h *SubagentHandler) GetSkills(c echo.Context) error {
 	if item.BotID != botID {
 		return echo.NewHTTPError(http.StatusForbidden, "bot mismatch")
 	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+	if _, err := h.authorizeBotAccess(c.Request().Context(), channelIdentityID, botID); err != nil {
 		return err
 	}
 	return c.JSON(http.StatusOK, subagent.SkillsResponse{Skills: item.Skills})
@@ -354,7 +354,7 @@ func (h *SubagentHandler) GetSkills(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /bots/{bot_id}/subagents/{id}/skills [put]
 func (h *SubagentHandler) UpdateSkills(c echo.Context) error {
-	userID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
@@ -377,7 +377,7 @@ func (h *SubagentHandler) UpdateSkills(c echo.Context) error {
 	if item.BotID != botID {
 		return echo.NewHTTPError(http.StatusForbidden, "bot mismatch")
 	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+	if _, err := h.authorizeBotAccess(c.Request().Context(), channelIdentityID, botID); err != nil {
 		return err
 	}
 	updated, err := h.service.UpdateSkills(c.Request().Context(), id, req)
@@ -399,7 +399,7 @@ func (h *SubagentHandler) UpdateSkills(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /bots/{bot_id}/subagents/{id}/skills [post]
 func (h *SubagentHandler) AddSkills(c echo.Context) error {
-	userID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
@@ -422,7 +422,7 @@ func (h *SubagentHandler) AddSkills(c echo.Context) error {
 	if item.BotID != botID {
 		return echo.NewHTTPError(http.StatusForbidden, "user mismatch")
 	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+	if _, err := h.authorizeBotAccess(c.Request().Context(), channelIdentityID, botID); err != nil {
 		return err
 	}
 	updated, err := h.service.AddSkills(c.Request().Context(), id, req)
@@ -432,26 +432,26 @@ func (h *SubagentHandler) AddSkills(c echo.Context) error {
 	return c.JSON(http.StatusOK, subagent.SkillsResponse{Skills: updated.Skills})
 }
 
-func (h *SubagentHandler) requireUserID(c echo.Context) (string, error) {
-	userID, err := auth.UserIDFromContext(c)
+func (h *SubagentHandler) requireChannelIdentityID(c echo.Context) (string, error) {
+	channelIdentityID, err := auth.ChannelIdentityIDFromContext(c)
 	if err != nil {
 		return "", err
 	}
-	if err := identity.ValidateUserID(userID); err != nil {
+	if err := identity.ValidateChannelIdentityID(channelIdentityID); err != nil {
 		return "", echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	return userID, nil
+	return channelIdentityID, nil
 }
 
-func (h *SubagentHandler) authorizeBotAccess(ctx context.Context, actorID, botID string) (bots.Bot, error) {
-	if h.botService == nil || h.userService == nil {
+func (h *SubagentHandler) authorizeBotAccess(ctx context.Context, channelIdentityID, botID string) (bots.Bot, error) {
+	if h.botService == nil || h.accountService == nil {
 		return bots.Bot{}, echo.NewHTTPError(http.StatusInternalServerError, "bot services not configured")
 	}
-	isAdmin, err := h.userService.IsAdmin(ctx, actorID)
+	isAdmin, err := h.accountService.IsAdmin(ctx, channelIdentityID)
 	if err != nil {
 		return bots.Bot{}, echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	bot, err := h.botService.AuthorizeAccess(ctx, actorID, botID, isAdmin, bots.AccessPolicy{AllowPublicMember: false})
+	bot, err := h.botService.AuthorizeAccess(ctx, channelIdentityID, botID, isAdmin, bots.AccessPolicy{AllowPublicMember: false})
 	if err != nil {
 		if errors.Is(err, bots.ErrBotNotFound) {
 			return bots.Bot{}, echo.NewHTTPError(http.StatusNotFound, "bot not found")

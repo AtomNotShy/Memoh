@@ -3,10 +3,11 @@ package identity
 import "strings"
 
 const (
-	UserTypeHuman = "human"
-	UserTypeBot   = "bot"
+	IdentityTypeHuman = "human"
+	IdentityTypeBot   = "bot"
 )
 
-func IsBotUserType(userType string) bool {
-	return strings.EqualFold(strings.TrimSpace(userType), UserTypeBot)
+// IsBotIdentityType checks if the identity type is a bot.
+func IsBotIdentityType(identityType string) bool {
+	return strings.EqualFold(strings.TrimSpace(identityType), IdentityTypeBot)
 }

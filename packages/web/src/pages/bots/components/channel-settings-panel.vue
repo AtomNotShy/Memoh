@@ -115,8 +115,8 @@
     <div class="flex items-center justify-between">
       <Label>{{ $t('bots.channels.status') }}</Label>
       <Switch
-        :model-value="form.status === 'active'"
-        @update:model-value="(val) => form.status = val ? 'active' : 'inactive'"
+        :model-value="form.status !== 'disabled'"
+        @update:model-value="(val) => form.status = val ? 'verified' : 'disabled'"
       />
     </div>
 
@@ -179,7 +179,7 @@ const form = reactive<{
   status: string
 }>({
   credentials: {},
-  status: 'active',
+  status: 'verified',
 })
 
 const visibleSecrets = reactive<Record<string, boolean>>({})
@@ -206,7 +206,16 @@ function initForm() {
     creds[key] = existingCredentials[key] ?? ''
   }
   form.credentials = creds
-  form.status = props.channelItem.config?.status ?? 'active'
+  const rawStatus = String(props.channelItem.config?.status ?? '').toLowerCase().trim()
+  if (rawStatus === 'disabled' || rawStatus === 'inactive') {
+    form.status = 'disabled'
+    return
+  }
+  if (rawStatus === 'pending') {
+    form.status = 'pending'
+    return
+  }
+  form.status = 'verified'
 }
 
 watch(

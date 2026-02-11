@@ -1,8 +1,6 @@
 <script setup lang="ts">
-// import type { Payment } from '@/components/columns'
 import { computed, ref, provide, watch, reactive } from 'vue'
 import modelSetting from './model-setting.vue'
-import { useQueryCache } from '@pinia/colada'
 import {
   ScrollArea,
   Sidebar,
@@ -15,12 +13,6 @@ import {
   InputGroup, InputGroupAddon, InputGroupInput,
   SidebarFooter,
   Toggle,
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
   Empty,
   EmptyContent,
   EmptyDescription,
@@ -30,16 +22,10 @@ import {
 } from '@memoh/ui'
 import { type ProviderInfo } from '@memoh/shared'
 import AddProvider from '@/components/add-provider/index.vue'
-import { clientType } from '@memoh/shared'
 import { useProviderList } from '@/composables/api/useProviders'
 
 const filterProvider = ref('')
 const { data: providerData } = useProviderList(filterProvider)
-const queryCache = useQueryCache()
-
-watch(filterProvider, () => {
-  queryCache.invalidateQueries({ key: ['provider'] })
-}, { immediate: true })
 
 
 const curProvider = ref<Partial<ProviderInfo> & { id: string }>()
@@ -134,22 +120,6 @@ const openStatus = reactive({
             </SidebarMenu>
           </SidebarContent>
           <SidebarFooter>
-            <Select v-model:model-value="filterProvider">
-              <SelectTrigger class="w-full">
-                <SelectValue :placeholder="$t('provider.typePlaceholder')" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem
-                    v-for="type in clientType"
-                    :key="type"
-                    :value="type"
-                  >
-                    {{ type }}
-                  </SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
             <AddProvider v-model:open="openStatus.provideOpen" />
           </SidebarFooter>
         </Sidebar>

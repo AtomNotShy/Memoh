@@ -13,21 +13,11 @@ import (
 	"github.com/memohai/memoh/internal/auth"
 	"github.com/memohai/memoh/internal/channel"
 	"github.com/memohai/memoh/internal/chat"
-	"github.com/memohai/memoh/internal/contacts"
 )
 
-// ChatGateway 抽象聊天能力，避免路由层直接依赖具体实现。
+// ChatGateway abstracts the chat capability to avoid direct coupling in the router.
 type ChatGateway interface {
 	Chat(ctx context.Context, req chat.ChatRequest) (chat.ChatResponse, error)
-}
-
-type ContactService interface {
-	GetByID(ctx context.Context, contactID string) (contacts.Contact, error)
-	GetByUserID(ctx context.Context, botID, userID string) (contacts.Contact, error)
-	GetByChannelIdentity(ctx context.Context, botID, platform, externalID string) (contacts.ContactChannel, error)
-	Create(ctx context.Context, req contacts.CreateRequest) (contacts.Contact, error)
-	CreateGuest(ctx context.Context, botID, displayName string) (contacts.Contact, error)
-	UpsertChannel(ctx context.Context, botID, contactID, platform, externalID string, metadata map[string]any) (contacts.ContactChannel, error)
 }
 
 const (
@@ -39,34 +29,56 @@ var (
 	whitespacePattern = regexp.MustCompile(`\s+`)
 )
 
-// ChannelInboundProcessor 将 channel 入站消息路由到 chat，并返回可发送的回复。
-type ChannelInboundProcessor struct {
-	chat      ChatGateway
-	registry  *channel.Registry
-	logger    *slog.Logger
-	jwtSecret string
-	tokenTTL  time.Duration
-	identity  *IdentityResolver
+// ChatService resolves and manages chats.
+type ChatService interface {
+	ResolveChat(ctx context.Context, botID, platform, conversationID, threadID, conversationType, userID, channelConfigID, replyTarget string) (chat.ResolveChatResult, error)
+	PersistMessage(ctx context.Context, chatID, botID, routeID, senderChannelIdentityID, senderUserID, platform, externalMessageID, role string, content json.RawMessage, metadata map[string]any) (chat.Message, error)
 }
 
-func NewChannelInboundProcessor(log *slog.Logger, registry *channel.Registry, store channel.ConfigStore, chatGateway ChatGateway, contactService ContactService, policyService PolicyService, preauthService PreauthService, jwtSecret string, tokenTTL time.Duration) *ChannelInboundProcessor {
+// ChannelInboundProcessor routes channel inbound messages to the chat gateway.
+type ChannelInboundProcessor struct {
+	chat        ChatGateway
+	chatService ChatService
+	registry    *channel.Registry
+	logger      *slog.Logger
+	jwtSecret   string
+	tokenTTL    time.Duration
+	identity    *IdentityResolver
+}
+
+// NewChannelInboundProcessor creates a processor with channel identity-based resolution.
+func NewChannelInboundProcessor(
+	log *slog.Logger,
+	registry *channel.Registry,
+	chatService ChatService,
+	chatGateway ChatGateway,
+	channelIdentityService ChannelIdentityService,
+	memberService BotMemberService,
+	policyService PolicyService,
+	preauthService PreauthService,
+	bindService BindService,
+	jwtSecret string,
+	tokenTTL time.Duration,
+) *ChannelInboundProcessor {
 	if log == nil {
 		log = slog.Default()
 	}
 	if tokenTTL <= 0 {
 		tokenTTL = 5 * time.Minute
 	}
-	identityResolver := NewIdentityResolver(log, registry, store, contactService, policyService, preauthService, "", "")
+	identityResolver := NewIdentityResolver(log, registry, channelIdentityService, memberService, policyService, preauthService, bindService, "", "")
 	return &ChannelInboundProcessor{
-		chat:      chatGateway,
-		registry:  registry,
-		logger:    log.With(slog.String("component", "channel_router")),
-		jwtSecret: strings.TrimSpace(jwtSecret),
-		tokenTTL:  tokenTTL,
-		identity:  identityResolver,
+		chat:        chatGateway,
+		chatService: chatService,
+		registry:    registry,
+		logger:      log.With(slog.String("component", "channel_router")),
+		jwtSecret:   strings.TrimSpace(jwtSecret),
+		tokenTTL:    tokenTTL,
+		identity:    identityResolver,
 	}
 }
 
+// IdentityMiddleware returns the identity resolution middleware.
 func (p *ChannelInboundProcessor) IdentityMiddleware() channel.Middleware {
 	if p == nil || p.identity == nil {
 		return nil
@@ -74,6 +86,7 @@ func (p *ChannelInboundProcessor) IdentityMiddleware() channel.Middleware {
 	return p.identity.Middleware()
 }
 
+// HandleInbound processes an inbound channel message through identity resolution and chat gateway.
 func (p *ChannelInboundProcessor) HandleInbound(ctx context.Context, cfg channel.ChannelConfig, msg channel.InboundMessage, sender channel.ReplySender) error {
 	if p.chat == nil {
 		return fmt.Errorf("channel inbound processor not configured")
@@ -101,24 +114,42 @@ func (p *ChannelInboundProcessor) HandleInbound(ctx context.Context, cfg channel
 
 	identity := state.Identity
 
-	sessionToken := ""
+	// Resolve or create the chat via chat_routes.
+	if p.chatService == nil {
+		return fmt.Errorf("chat service not configured")
+	}
+	resolved, err := p.chatService.ResolveChat(ctx, identity.BotID,
+		msg.Channel.String(), msg.Conversation.ID, extractThreadID(msg),
+		msg.Conversation.Type, identity.UserID, identity.ChannelConfigID,
+		strings.TrimSpace(msg.ReplyTarget))
+	if err != nil {
+		return fmt.Errorf("resolve chat: %w", err)
+	}
+	if !shouldTriggerAssistantResponse(msg) && !identity.ForceReply {
+		p.persistInboundOnly(ctx, resolved, identity, msg, text)
+		return nil
+	}
+
+	// Issue chat token for reply routing.
+	chatToken := ""
 	if p.jwtSecret != "" && strings.TrimSpace(msg.ReplyTarget) != "" {
-		signed, _, err := auth.GenerateSessionToken(auth.SessionToken{
-			BotID:       identity.BotID,
-			Platform:    msg.Channel.String(),
-			ReplyTarget: strings.TrimSpace(msg.ReplyTarget),
-			SessionID:   identity.SessionID,
-			ContactID:   identity.ContactID,
+		signed, _, err := auth.GenerateChatToken(auth.ChatToken{
+			BotID:             identity.BotID,
+			ChatID:            resolved.ChatID,
+			RouteID:           resolved.RouteID,
+			UserID:            identity.UserID,
+			ChannelIdentityID: identity.ChannelIdentityID,
 		}, p.jwtSecret, p.tokenTTL)
 		if err != nil {
 			if p.logger != nil {
-				p.logger.Warn("issue session token failed", slog.Any("error", err))
+				p.logger.Warn("issue chat token failed", slog.Any("error", err))
 			}
 		} else {
-			sessionToken = signed
+			chatToken = signed
 		}
 	}
 
+	// Issue user JWT for downstream calls.
 	token := ""
 	if identity.UserID != "" && p.jwtSecret != "" {
 		signed, _, err := auth.GenerateToken(identity.UserID, p.jwtSecret, p.tokenTTL)
@@ -130,27 +161,33 @@ func (p *ChannelInboundProcessor) HandleInbound(ctx context.Context, cfg channel
 			token = "Bearer " + signed
 		}
 	}
+
 	var desc channel.Descriptor
 	if p.registry != nil {
 		desc, _ = p.registry.GetDescriptor(msg.Channel)
 	}
 	resp, err := p.chat.Chat(ctx, chat.ChatRequest{
-		BotID:          identity.BotID,
-		SessionID:      identity.SessionID,
-		Token:          token,
-		UserID:         identity.UserID,
-		ContactID:      identity.ContactID,
-		ContactName:    strings.TrimSpace(identity.Contact.DisplayName),
-		ContactAlias:   strings.TrimSpace(identity.Contact.Alias),
-		ReplyTarget:    strings.TrimSpace(msg.ReplyTarget),
-		SessionToken:   sessionToken,
-		Query:          text,
-		CurrentChannel: msg.Channel.String(),
-		Channels:       []string{msg.Channel.String()},
+		BotID:             identity.BotID,
+		ChatID:            resolved.ChatID,
+		Token:             token,
+		ChannelIdentityID: identity.UserID,
+		DisplayName:       identity.DisplayName,
+		RouteID:           resolved.RouteID,
+		ChatToken:         chatToken,
+		ExternalMessageID: strings.TrimSpace(msg.Message.ID),
+		Query:             text,
+		CurrentChannel:    msg.Channel.String(),
+		Channels:          []string{msg.Channel.String()},
 	})
 	if err != nil {
 		if p.logger != nil {
-			p.logger.Error("chat gateway failed", slog.String("channel", msg.Channel.String()), slog.String("user_id", identity.UserID), slog.Any("error", err))
+			p.logger.Error(
+				"chat gateway failed",
+				slog.String("channel", msg.Channel.String()),
+				slog.String("channel_identity_id", identity.ChannelIdentityID),
+				slog.String("user_id", identity.UserID),
+				slog.Any("error", err),
+			)
 		}
 		return err
 	}
@@ -188,6 +225,141 @@ func (p *ChannelInboundProcessor) HandleInbound(ctx context.Context, cfg channel
 	return nil
 }
 
+func shouldTriggerAssistantResponse(msg channel.InboundMessage) bool {
+	if isDirectConversationType(msg.Conversation.Type) {
+		return true
+	}
+	if metadataBool(msg.Metadata, "is_mentioned") {
+		return true
+	}
+	if metadataBool(msg.Metadata, "is_reply_to_bot") {
+		return true
+	}
+	return hasCommandPrefix(msg.Message.PlainText(), msg.Metadata)
+}
+
+func isDirectConversationType(conversationType string) bool {
+	ct := strings.ToLower(strings.TrimSpace(conversationType))
+	return ct == "" || ct == "p2p" || ct == "private" || ct == "direct"
+}
+
+func hasCommandPrefix(text string, metadata map[string]any) bool {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return false
+	}
+	prefixes := []string{"/"}
+	if metadata != nil {
+		if raw, ok := metadata["command_prefix"]; ok {
+			if value := strings.TrimSpace(fmt.Sprint(raw)); value != "" {
+				prefixes = []string{value}
+			}
+		}
+		if raw, ok := metadata["command_prefixes"]; ok {
+			if parsed := parseCommandPrefixes(raw); len(parsed) > 0 {
+				prefixes = parsed
+			}
+		}
+	}
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func parseCommandPrefixes(raw any) []string {
+	if items, ok := raw.([]string); ok {
+		result := make([]string, 0, len(items))
+		for _, item := range items {
+			value := strings.TrimSpace(item)
+			if value == "" {
+				continue
+			}
+			result = append(result, value)
+		}
+		return result
+	}
+	items, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		value := strings.TrimSpace(fmt.Sprint(item))
+		if value == "" {
+			continue
+		}
+		result = append(result, value)
+	}
+	return result
+}
+
+func metadataBool(metadata map[string]any, key string) bool {
+	if metadata == nil {
+		return false
+	}
+	raw, ok := metadata[key]
+	if !ok {
+		return false
+	}
+	switch value := raw.(type) {
+	case bool:
+		return value
+	case string:
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "1", "true", "yes", "on":
+			return true
+		default:
+			return false
+		}
+	default:
+		return false
+	}
+}
+
+func (p *ChannelInboundProcessor) persistInboundOnly(ctx context.Context, resolved chat.ResolveChatResult, identity InboundIdentity, msg channel.InboundMessage, query string) {
+	if p.chatService == nil {
+		return
+	}
+	chatID := strings.TrimSpace(resolved.ChatID)
+	botID := strings.TrimSpace(identity.BotID)
+	if chatID == "" || botID == "" {
+		return
+	}
+	payload, err := json.Marshal(chat.ModelMessage{
+		Role:    "user",
+		Content: chat.NewTextContent(query),
+	})
+	if err != nil {
+		if p.logger != nil {
+			p.logger.Warn("marshal passive inbound failed", slog.Any("error", err))
+		}
+		return
+	}
+	meta := map[string]any{
+		"route_id":     resolved.RouteID,
+		"platform":     msg.Channel.String(),
+		"trigger_mode": "passive_sync",
+	}
+	if _, err := p.chatService.PersistMessage(
+		ctx,
+		chatID,
+		botID,
+		strings.TrimSpace(resolved.RouteID),
+		strings.TrimSpace(identity.ChannelIdentityID),
+		strings.TrimSpace(identity.UserID),
+		msg.Channel.String(),
+		strings.TrimSpace(msg.Message.ID),
+		"user",
+		payload,
+		meta,
+	); err != nil && p.logger != nil {
+		p.logger.Warn("persist passive inbound failed", slog.Any("error", err))
+	}
+}
+
 func buildChannelMessage(output chat.AssistantOutput, capabilities channel.ChannelCapabilities) channel.Message {
 	msg := channel.Message{}
 	if strings.TrimSpace(output.Content) != "" {
@@ -207,13 +379,13 @@ func buildChannelMessage(output chat.AssistantOutput, capabilities channel.Chann
 			}
 			partType := normalizeContentPartType(part.Type)
 			parts = append(parts, channel.MessagePart{
-				Type:     partType,
-				Text:     part.Text,
-				URL:      part.URL,
-				Styles:   normalizeContentPartStyles(part.Styles),
-				Language: part.Language,
-				UserID:   part.UserID,
-				Emoji:    part.Emoji,
+				Type:              partType,
+				Text:              part.Text,
+				URL:               part.URL,
+				Styles:            normalizeContentPartStyles(part.Styles),
+				Language:          part.Language,
+				ChannelIdentityID: part.ChannelIdentityID,
+				Emoji:             part.Emoji,
 			})
 		}
 		if len(parts) > 0 {
@@ -350,11 +522,11 @@ func normalizeContentPartStyles(styles []string) []channel.MessageTextStyle {
 }
 
 type sendMessageToolArgs struct {
-	Platform string           `json:"platform"`
-	Target   string           `json:"target"`
-	UserID   string           `json:"user_id"`
-	Text     string           `json:"text"`
-	Message  *channel.Message `json:"message"`
+	Platform          string           `json:"platform"`
+	Target            string           `json:"target"`
+	ChannelIdentityID string           `json:"channel_identity_id"`
+	Text              string           `json:"text"`
+	Message           *channel.Message `json:"message"`
 }
 
 func collectMessageToolContext(registry *channel.Registry, messages []chat.ModelMessage, channelType channel.ChannelType, replyTarget string) ([]string, bool) {
@@ -419,7 +591,7 @@ func shouldSuppressForToolCall(registry *channel.Registry, args sendMessageToolA
 		return false
 	}
 	target := strings.TrimSpace(args.Target)
-	if target == "" && strings.TrimSpace(args.UserID) == "" {
+	if target == "" && strings.TrimSpace(args.ChannelIdentityID) == "" {
 		target = replyTarget
 	}
 	if strings.TrimSpace(target) == "" || strings.TrimSpace(replyTarget) == "" {

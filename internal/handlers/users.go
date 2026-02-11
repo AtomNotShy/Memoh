@@ -10,29 +10,42 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v4"
 
+	"github.com/memohai/memoh/internal/accounts"
 	"github.com/memohai/memoh/internal/auth"
 	"github.com/memohai/memoh/internal/bots"
 	"github.com/memohai/memoh/internal/channel"
+	"github.com/memohai/memoh/internal/channelidentities"
+	"github.com/memohai/memoh/internal/chat"
 	"github.com/memohai/memoh/internal/identity"
-	"github.com/memohai/memoh/internal/users"
 )
 
+// UsersHandler manages user/account CRUD and bot operations via REST API.
 type UsersHandler struct {
-	service        *users.Service
+	service        *accounts.Service
+	channelIdentityService *channelidentities.Service
 	botService     *bots.Service
+	chatService    *chat.Service
 	channelService *channel.Service
 	channelManager *channel.Manager
 	registry       *channel.Registry
 	logger         *slog.Logger
 }
 
-func NewUsersHandler(log *slog.Logger, service *users.Service, botService *bots.Service, channelService *channel.Service, channelManager *channel.Manager, registry *channel.Registry) *UsersHandler {
+type listMyIdentitiesResponse struct {
+	UserID string                              `json:"user_id"`
+	Items  []channelidentities.ChannelIdentity `json:"items"`
+}
+
+// NewUsersHandler creates a UsersHandler with channel identity support.
+func NewUsersHandler(log *slog.Logger, service *accounts.Service, channelIdentityService *channelidentities.Service, botService *bots.Service, chatService *chat.Service, channelService *channel.Service, channelManager *channel.Manager, registry *channel.Registry) *UsersHandler {
 	if log == nil {
 		log = slog.Default()
 	}
 	return &UsersHandler{
 		service:        service,
+		channelIdentityService: channelIdentityService,
 		botService:     botService,
+		chatService:    chatService,
 		channelService: channelService,
 		channelManager: channelManager,
 		registry:       registry,
@@ -43,6 +56,7 @@ func NewUsersHandler(log *slog.Logger, service *users.Service, botService *bots.
 func (h *UsersHandler) Register(e *echo.Echo) {
 	userGroup := e.Group("/users")
 	userGroup.GET("/me", h.GetMe)
+	userGroup.GET("/me/identities", h.ListMyIdentities)
 	userGroup.PUT("/me", h.UpdateMe)
 	userGroup.PUT("/me/password", h.UpdateMyPassword)
 	userGroup.GET("", h.ListUsers)
@@ -64,48 +78,75 @@ func (h *UsersHandler) Register(e *echo.Echo) {
 	botGroup.GET("/:id/channel/:platform", h.GetBotChannelConfig)
 	botGroup.PUT("/:id/channel/:platform", h.UpsertBotChannelConfig)
 	botGroup.POST("/:id/channel/:platform/send", h.SendBotMessage)
-	botGroup.POST("/:id/channel/:platform/send_session", h.SendBotMessageSession)
+	botGroup.POST("/:id/channel/:platform/send_chat", h.SendBotMessageSession)
 }
 
 // GetMe godoc
 // @Summary Get current user
 // @Description Get current user profile
 // @Tags users
-// @Success 200 {object} users.User
+// @Success 200 {object} accounts.Account
 // @Failure 400 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /users/me [get]
 func (h *UsersHandler) GetMe(c echo.Context) error {
-	userID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
-	resp, err := h.service.Get(c.Request().Context(), userID)
+	resp, err := h.service.Get(c.Request().Context(), channelIdentityID)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusOK, resp)
 }
 
+// ListMyIdentities godoc
+// @Summary List current user's channel identities
+// @Description List all channel identities linked to current user
+// @Tags users
+// @Success 200 {object} listMyIdentitiesResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /users/me/identities [get]
+func (h *UsersHandler) ListMyIdentities(c echo.Context) error {
+	userID, err := h.requireChannelIdentityID(c)
+	if err != nil {
+		return err
+	}
+	if h.channelIdentityService == nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "channel identity service not configured")
+	}
+	items, err := h.channelIdentityService.ListUserChannelIdentities(c.Request().Context(), userID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, listMyIdentitiesResponse{
+		UserID: userID,
+		Items:  items,
+	})
+}
+
 // UpdateMe godoc
 // @Summary Update current user profile
 // @Description Update current user display name or avatar
 // @Tags users
-// @Param payload body users.UpdateProfileRequest true "Profile payload"
-// @Success 200 {object} users.User
+// @Param payload body accounts.UpdateProfileRequest true "Profile payload"
+// @Success 200 {object} accounts.Account
 // @Failure 400 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /users/me [put]
 func (h *UsersHandler) UpdateMe(c echo.Context) error {
-	userID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
-	var req users.UpdateProfileRequest
+	var req accounts.UpdateProfileRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	resp, err := h.service.UpdateProfile(c.Request().Context(), userID, req)
+	resp, err := h.service.UpdateProfile(c.Request().Context(), channelIdentityID, req)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
@@ -116,22 +157,22 @@ func (h *UsersHandler) UpdateMe(c echo.Context) error {
 // @Summary Update current user password
 // @Description Update current user password with current password check
 // @Tags users
-// @Param payload body users.UpdatePasswordRequest true "Password payload"
+// @Param payload body accounts.UpdatePasswordRequest true "Password payload"
 // @Success 204 "No Content"
 // @Failure 400 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /users/me/password [put]
 func (h *UsersHandler) UpdateMyPassword(c echo.Context) error {
-	userID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
-	var req users.UpdatePasswordRequest
+	var req accounts.UpdatePasswordRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	if err := h.service.UpdatePassword(c.Request().Context(), userID, req.CurrentPassword, req.NewPassword); err != nil {
-		if errors.Is(err, users.ErrInvalidPassword) {
+	if err := h.service.UpdatePassword(c.Request().Context(), channelIdentityID, req.CurrentPassword, req.NewPassword); err != nil {
+		if errors.Is(err, accounts.ErrInvalidPassword) {
 			return echo.NewHTTPError(http.StatusBadRequest, "current password mismatch")
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -143,17 +184,17 @@ func (h *UsersHandler) UpdateMyPassword(c echo.Context) error {
 // @Summary List users (admin only)
 // @Description List users
 // @Tags users
-// @Success 200 {object} users.ListUsersResponse
+// @Success 200 {object} accounts.ListAccountsResponse
 // @Failure 400 {object} ErrorResponse
 // @Failure 403 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /users [get]
 func (h *UsersHandler) ListUsers(c echo.Context) error {
-	actorID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
-	isAdmin, err := h.service.IsAdmin(c.Request().Context(), actorID)
+	isAdmin, err := h.service.IsAdmin(c.Request().Context(), channelIdentityID)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
@@ -163,11 +204,11 @@ func (h *UsersHandler) ListUsers(c echo.Context) error {
 	if strings.TrimSpace(c.QueryParam("user_type")) != "" || strings.TrimSpace(c.QueryParam("owner_id")) != "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "user_type and owner_id are not supported")
 	}
-	items, err := h.service.ListUsers(c.Request().Context())
+	items, err := h.service.ListAccounts(c.Request().Context())
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	return c.JSON(http.StatusOK, users.ListUsersResponse{Items: items})
+	return c.JSON(http.StatusOK, accounts.ListAccountsResponse{Items: items})
 }
 
 // GetUser godoc
@@ -175,14 +216,14 @@ func (h *UsersHandler) ListUsers(c echo.Context) error {
 // @Description Get user details (self or admin only)
 // @Tags users
 // @Param id path string true "User ID"
-// @Success 200 {object} users.User
+// @Success 200 {object} accounts.Account
 // @Failure 400 {object} ErrorResponse
 // @Failure 403 {object} ErrorResponse
 // @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /users/{id} [get]
 func (h *UsersHandler) GetUser(c echo.Context) error {
-	actorID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
@@ -190,8 +231,8 @@ func (h *UsersHandler) GetUser(c echo.Context) error {
 	if targetID == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "user id is required")
 	}
-	if targetID != actorID {
-		isAdmin, err := h.service.IsAdmin(c.Request().Context(), actorID)
+	if targetID != channelIdentityID {
+		isAdmin, err := h.service.IsAdmin(c.Request().Context(), channelIdentityID)
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
@@ -214,19 +255,19 @@ func (h *UsersHandler) GetUser(c echo.Context) error {
 // @Description Update user profile and status
 // @Tags users
 // @Param id path string true "User ID"
-// @Param payload body users.UpdateUserRequest true "User update payload"
-// @Success 200 {object} users.User
+// @Param payload body accounts.UpdateAccountRequest true "User update payload"
+// @Success 200 {object} accounts.Account
 // @Failure 400 {object} ErrorResponse
 // @Failure 403 {object} ErrorResponse
 // @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /users/{id} [put]
 func (h *UsersHandler) UpdateUser(c echo.Context) error {
-	actorID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
-	isAdmin, err := h.service.IsAdmin(c.Request().Context(), actorID)
+	isAdmin, err := h.service.IsAdmin(c.Request().Context(), channelIdentityID)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
@@ -244,11 +285,11 @@ func (h *UsersHandler) UpdateUser(c echo.Context) error {
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	var req users.UpdateUserRequest
+	var req accounts.UpdateAccountRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	resp, err := h.service.UpdateUserAdmin(c.Request().Context(), targetID, req)
+	resp, err := h.service.UpdateAdmin(c.Request().Context(), targetID, req)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
@@ -260,7 +301,7 @@ func (h *UsersHandler) UpdateUser(c echo.Context) error {
 // @Description Reset a user password
 // @Tags users
 // @Param id path string true "User ID"
-// @Param payload body users.ResetPasswordRequest true "Password payload"
+// @Param payload body accounts.ResetPasswordRequest true "Password payload"
 // @Success 204 "No Content"
 // @Failure 400 {object} ErrorResponse
 // @Failure 403 {object} ErrorResponse
@@ -268,11 +309,11 @@ func (h *UsersHandler) UpdateUser(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /users/{id}/password [put]
 func (h *UsersHandler) ResetUserPassword(c echo.Context) error {
-	actorID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
-	isAdmin, err := h.service.IsAdmin(c.Request().Context(), actorID)
+	isAdmin, err := h.service.IsAdmin(c.Request().Context(), channelIdentityID)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
@@ -289,7 +330,7 @@ func (h *UsersHandler) ResetUserPassword(c echo.Context) error {
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	var req users.ResetPasswordRequest
+	var req accounts.ResetPasswordRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
@@ -303,29 +344,29 @@ func (h *UsersHandler) ResetUserPassword(c echo.Context) error {
 // @Summary Create human user (admin only)
 // @Description Create a new human user account
 // @Tags users
-// @Param payload body users.CreateUserRequest true "User payload"
-// @Success 201 {object} users.User
+// @Param payload body accounts.CreateAccountRequest true "User payload"
+// @Success 201 {object} accounts.Account
 // @Failure 400 {object} ErrorResponse
 // @Failure 403 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /users [post]
 func (h *UsersHandler) CreateUser(c echo.Context) error {
-	actorID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
-	isAdmin, err := h.service.IsAdmin(c.Request().Context(), actorID)
+	isAdmin, err := h.service.IsAdmin(c.Request().Context(), channelIdentityID)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	if !isAdmin {
 		return echo.NewHTTPError(http.StatusForbidden, "admin role required")
 	}
-	var req users.CreateUserRequest
+	var req accounts.CreateAccountRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	resp, err := h.service.CreateHuman(c.Request().Context(), req)
+	resp, err := h.service.CreateHuman(c.Request().Context(), "", req)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
@@ -343,7 +384,7 @@ func (h *UsersHandler) CreateUser(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /bots [post]
 func (h *UsersHandler) CreateBot(c echo.Context) error {
-	actorID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
@@ -351,19 +392,36 @@ func (h *UsersHandler) CreateBot(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	ownerID := actorID
+	ownerID := channelIdentityID
+	ownerFromToken := true
 	if raw := strings.TrimSpace(c.QueryParam("owner_id")); raw != "" {
-		isAdmin, err := h.service.IsAdmin(c.Request().Context(), actorID)
+		isAdmin, err := h.service.IsAdmin(c.Request().Context(), channelIdentityID)
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 		if !isAdmin {
 			return echo.NewHTTPError(http.StatusForbidden, "admin role required for owner override")
 		}
+		if err := identity.ValidateChannelIdentityID(raw); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		}
 		ownerID = raw
+		ownerFromToken = false
+	}
+	if ownerFromToken && h.channelIdentityService != nil {
+		linkedUserID, err := h.channelIdentityService.GetLinkedUserID(c.Request().Context(), ownerID)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		}
+		if strings.TrimSpace(linkedUserID) != "" {
+			ownerID = linkedUserID
+		}
 	}
 	resp, err := h.botService.Create(c.Request().Context(), ownerID, req)
 	if err != nil {
+		if errors.Is(err, bots.ErrOwnerUserNotFound) {
+			return echo.NewHTTPError(http.StatusBadRequest, "owner user not found")
+		}
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusCreated, resp)
@@ -380,13 +438,13 @@ func (h *UsersHandler) CreateBot(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /bots [get]
 func (h *UsersHandler) ListBots(c echo.Context) error {
-	actorID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
 	ownerID := strings.TrimSpace(c.QueryParam("owner_id"))
 	if ownerID != "" {
-		isAdmin, err := h.service.IsAdmin(c.Request().Context(), actorID)
+		isAdmin, err := h.service.IsAdmin(c.Request().Context(), channelIdentityID)
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
@@ -399,7 +457,7 @@ func (h *UsersHandler) ListBots(c echo.Context) error {
 		}
 		return c.JSON(http.StatusOK, bots.ListBotsResponse{Items: items})
 	}
-	items, err := h.botService.ListAccessible(c.Request().Context(), actorID)
+	items, err := h.botService.ListAccessible(c.Request().Context(), channelIdentityID)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
@@ -418,7 +476,7 @@ func (h *UsersHandler) ListBots(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /bots/{id} [get]
 func (h *UsersHandler) GetBot(c echo.Context) error {
-	actorID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
@@ -426,7 +484,7 @@ func (h *UsersHandler) GetBot(c echo.Context) error {
 	if botID == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
 	}
-	bot, err := h.authorizeBotAccess(c.Request().Context(), actorID, botID)
+	bot, err := h.authorizeBotAccess(c.Request().Context(), channelIdentityID, botID)
 	if err != nil {
 		return err
 	}
@@ -446,7 +504,7 @@ func (h *UsersHandler) GetBot(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /bots/{id} [put]
 func (h *UsersHandler) UpdateBot(c echo.Context) error {
-	actorID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
@@ -454,7 +512,7 @@ func (h *UsersHandler) UpdateBot(c echo.Context) error {
 	if botID == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
 	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), actorID, botID); err != nil {
+	if _, err := h.authorizeBotAccess(c.Request().Context(), channelIdentityID, botID); err != nil {
 		return err
 	}
 	var req bots.UpdateBotRequest
@@ -481,11 +539,11 @@ func (h *UsersHandler) UpdateBot(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /bots/{id}/owner [put]
 func (h *UsersHandler) TransferBotOwner(c echo.Context) error {
-	actorID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
-	isAdmin, err := h.service.IsAdmin(c.Request().Context(), actorID)
+	isAdmin, err := h.service.IsAdmin(c.Request().Context(), channelIdentityID)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
@@ -505,6 +563,9 @@ func (h *UsersHandler) TransferBotOwner(c echo.Context) error {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return echo.NewHTTPError(http.StatusNotFound, "bot not found")
 		}
+		if errors.Is(err, bots.ErrOwnerUserNotFound) {
+			return echo.NewHTTPError(http.StatusBadRequest, "owner user not found")
+		}
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusOK, resp)
@@ -522,7 +583,7 @@ func (h *UsersHandler) TransferBotOwner(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /bots/{id} [delete]
 func (h *UsersHandler) DeleteBot(c echo.Context) error {
-	actorID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
@@ -530,7 +591,7 @@ func (h *UsersHandler) DeleteBot(c echo.Context) error {
 	if botID == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
 	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), actorID, botID); err != nil {
+	if _, err := h.authorizeBotAccess(c.Request().Context(), channelIdentityID, botID); err != nil {
 		return err
 	}
 	if err := h.botService.Delete(c.Request().Context(), botID); err != nil {
@@ -554,7 +615,7 @@ func (h *UsersHandler) DeleteBot(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /bots/{id}/members [get]
 func (h *UsersHandler) ListBotMembers(c echo.Context) error {
-	actorID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
@@ -562,7 +623,7 @@ func (h *UsersHandler) ListBotMembers(c echo.Context) error {
 	if botID == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
 	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), actorID, botID); err != nil {
+	if _, err := h.authorizeBotAccess(c.Request().Context(), channelIdentityID, botID); err != nil {
 		return err
 	}
 	items, err := h.botService.ListMembers(c.Request().Context(), botID)
@@ -585,7 +646,7 @@ func (h *UsersHandler) ListBotMembers(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /bots/{id}/members [put]
 func (h *UsersHandler) UpsertBotMember(c echo.Context) error {
-	actorID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
@@ -593,7 +654,7 @@ func (h *UsersHandler) UpsertBotMember(c echo.Context) error {
 	if botID == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
 	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), actorID, botID); err != nil {
+	if _, err := h.authorizeBotAccess(c.Request().Context(), channelIdentityID, botID); err != nil {
 		return err
 	}
 	var req bots.UpsertMemberRequest
@@ -624,7 +685,7 @@ func (h *UsersHandler) UpsertBotMember(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /bots/{id}/members/{user_id} [delete]
 func (h *UsersHandler) DeleteBotMember(c echo.Context) error {
-	actorID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
@@ -632,14 +693,14 @@ func (h *UsersHandler) DeleteBotMember(c echo.Context) error {
 	if botID == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
 	}
-	userID := strings.TrimSpace(c.Param("user_id"))
-	if userID == "" {
+	memberUserID := strings.TrimSpace(c.Param("user_id"))
+	if memberUserID == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "user id is required")
 	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), actorID, botID); err != nil {
+	if _, err := h.authorizeBotAccess(c.Request().Context(), channelIdentityID, botID); err != nil {
 		return err
 	}
-	if err := h.botService.DeleteMember(c.Request().Context(), botID, userID); err != nil {
+	if err := h.botService.DeleteMember(c.Request().Context(), botID, memberUserID); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	return c.NoContent(http.StatusNoContent)
@@ -658,7 +719,7 @@ func (h *UsersHandler) DeleteBotMember(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /bots/{id}/channel/{platform} [get]
 func (h *UsersHandler) GetBotChannelConfig(c echo.Context) error {
-	actorID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
@@ -666,7 +727,7 @@ func (h *UsersHandler) GetBotChannelConfig(c echo.Context) error {
 	if botID == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
 	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), actorID, botID); err != nil {
+	if _, err := h.authorizeBotAccess(c.Request().Context(), channelIdentityID, botID); err != nil {
 		return err
 	}
 	channelType, err := h.registry.ParseChannelType(c.Param("platform"))
@@ -697,7 +758,7 @@ func (h *UsersHandler) GetBotChannelConfig(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /bots/{id}/channel/{platform} [put]
 func (h *UsersHandler) UpsertBotChannelConfig(c echo.Context) error {
-	actorID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
@@ -705,7 +766,7 @@ func (h *UsersHandler) UpsertBotChannelConfig(c echo.Context) error {
 	if botID == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
 	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), actorID, botID); err != nil {
+	if _, err := h.authorizeBotAccess(c.Request().Context(), channelIdentityID, botID); err != nil {
 		return err
 	}
 	channelType, err := h.registry.ParseChannelType(c.Param("platform"))
@@ -740,7 +801,7 @@ func (h *UsersHandler) UpsertBotChannelConfig(c echo.Context) error {
 // @Failure 500 {object} ErrorResponse
 // @Router /bots/{id}/channel/{platform}/send [post]
 func (h *UsersHandler) SendBotMessage(c echo.Context) error {
-	actorID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
@@ -748,7 +809,7 @@ func (h *UsersHandler) SendBotMessage(c echo.Context) error {
 	if botID == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
 	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), actorID, botID); err != nil {
+	if _, err := h.authorizeBotAccess(c.Request().Context(), channelIdentityID, botID); err != nil {
 		return err
 	}
 	if h.channelManager == nil {
@@ -783,9 +844,9 @@ func (h *UsersHandler) SendBotMessage(c echo.Context) error {
 // @Failure 401 {object} ErrorResponse
 // @Failure 403 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /bots/{id}/channel/{platform}/send_session [post]
+// @Router /bots/{id}/channel/{platform}/send_chat [post]
 func (h *UsersHandler) SendBotMessageSession(c echo.Context) error {
-	sessionToken, err := auth.SessionTokenFromContext(c)
+	chatToken, err := auth.ChatTokenFromContext(c)
 	if err != nil {
 		return err
 	}
@@ -793,16 +854,24 @@ func (h *UsersHandler) SendBotMessageSession(c echo.Context) error {
 	if botID == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
 	}
-	channelType, err := h.registry.ParseChannelType(c.Param("platform"))
+	if chatToken.BotID != botID {
+		return echo.NewHTTPError(http.StatusForbidden, "token bot mismatch")
+	}
+	if h.channelManager == nil || h.chatService == nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "services not configured")
+	}
+	route, err := h.chatService.GetRouteByID(c.Request().Context(), chatToken.RouteID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "route not found")
+	}
+	if strings.TrimSpace(route.ReplyTarget) == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "reply target missing in route")
+	}
+	channelType, err := h.registry.ParseChannelType(route.Platform)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	if sessionToken.BotID != botID || sessionToken.Platform != channelType.String() {
-		return echo.NewHTTPError(http.StatusForbidden, "session token mismatch")
-	}
-	if h.channelManager == nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "channel manager not configured")
-	}
+
 	var req channel.SendRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
@@ -810,11 +879,8 @@ func (h *UsersHandler) SendBotMessageSession(c echo.Context) error {
 	if req.Message.IsEmpty() {
 		return echo.NewHTTPError(http.StatusBadRequest, "message is required")
 	}
-	if strings.TrimSpace(sessionToken.ReplyTarget) == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "reply target missing")
-	}
 	if err := h.channelManager.Send(c.Request().Context(), botID, channelType, channel.SendRequest{
-		Target:  sessionToken.ReplyTarget,
+		Target:  route.ReplyTarget,
 		Message: req.Message,
 	}); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
@@ -822,12 +888,12 @@ func (h *UsersHandler) SendBotMessageSession(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (h *UsersHandler) authorizeBotAccess(ctx context.Context, actorID, botID string) (bots.Bot, error) {
-	isAdmin, err := h.service.IsAdmin(ctx, actorID)
+func (h *UsersHandler) authorizeBotAccess(ctx context.Context, channelIdentityID, botID string) (bots.Bot, error) {
+	isAdmin, err := h.service.IsAdmin(ctx, channelIdentityID)
 	if err != nil {
 		return bots.Bot{}, echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	bot, err := h.botService.AuthorizeAccess(ctx, actorID, botID, isAdmin, bots.AccessPolicy{AllowPublicMember: false})
+	bot, err := h.botService.AuthorizeAccess(ctx, channelIdentityID, botID, isAdmin, bots.AccessPolicy{AllowPublicMember: false})
 	if err != nil {
 		if errors.Is(err, bots.ErrBotNotFound) {
 			return bots.Bot{}, echo.NewHTTPError(http.StatusNotFound, "bot not found")
@@ -840,13 +906,13 @@ func (h *UsersHandler) authorizeBotAccess(ctx context.Context, actorID, botID st
 	return bot, nil
 }
 
-func (h *UsersHandler) requireUserID(c echo.Context) (string, error) {
-	userID, err := auth.UserIDFromContext(c)
+func (h *UsersHandler) requireChannelIdentityID(c echo.Context) (string, error) {
+	channelIdentityID, err := auth.ChannelIdentityIDFromContext(c)
 	if err != nil {
 		return "", err
 	}
-	if err := identity.ValidateUserID(userID); err != nil {
+	if err := identity.ValidateChannelIdentityID(channelIdentityID); err != nil {
 		return "", echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	return userID, nil
+	return channelIdentityID, nil
 }

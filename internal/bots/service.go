@@ -16,6 +16,7 @@ import (
 	"github.com/memohai/memoh/internal/db/sqlc"
 )
 
+// Service provides bot CRUD and membership management.
 type Service struct {
 	queries            *sqlc.Queries
 	logger             *slog.Logger
@@ -23,14 +24,17 @@ type Service struct {
 }
 
 var (
-	ErrBotNotFound     = errors.New("bot not found")
-	ErrBotAccessDenied = errors.New("bot access denied")
+	ErrBotNotFound       = errors.New("bot not found")
+	ErrBotAccessDenied   = errors.New("bot access denied")
+	ErrOwnerUserNotFound = errors.New("owner user not found")
 )
 
+// AccessPolicy controls bot access behavior.
 type AccessPolicy struct {
 	AllowPublicMember bool
 }
 
+// NewService creates a new bot service.
 func NewService(log *slog.Logger, queries *sqlc.Queries) *Service {
 	if log == nil {
 		log = slog.Default()
@@ -46,7 +50,8 @@ func (s *Service) SetContainerLifecycle(lc ContainerLifecycle) {
 	s.containerLifecycle = lc
 }
 
-func (s *Service) AuthorizeAccess(ctx context.Context, actorID, botID string, isAdmin bool, policy AccessPolicy) (Bot, error) {
+// AuthorizeAccess checks whether userID may access the given bot.
+func (s *Service) AuthorizeAccess(ctx context.Context, userID, botID string, isAdmin bool, policy AccessPolicy) (Bot, error) {
 	if s.queries == nil {
 		return Bot{}, fmt.Errorf("bot queries not configured")
 	}
@@ -57,17 +62,18 @@ func (s *Service) AuthorizeAccess(ctx context.Context, actorID, botID string, is
 		}
 		return Bot{}, err
 	}
-	if isAdmin || bot.OwnerUserID == actorID {
+	if isAdmin || bot.OwnerUserID == userID {
 		return bot, nil
 	}
 	if policy.AllowPublicMember && bot.Type == BotTypePublic {
-		if _, err := s.GetMember(ctx, botID, actorID); err == nil {
+		if _, err := s.GetMember(ctx, botID, userID); err == nil {
 			return bot, nil
 		}
 	}
 	return Bot{}, ErrBotAccessDenied
 }
 
+// Create creates a new bot owned by owner user.
 func (s *Service) Create(ctx context.Context, ownerUserID string, req CreateBotRequest) (Bot, error) {
 	if s.queries == nil {
 		return Bot{}, fmt.Errorf("bot queries not configured")
@@ -78,6 +84,9 @@ func (s *Service) Create(ctx context.Context, ownerUserID string, req CreateBotR
 	}
 	ownerUUID, err := parseUUID(ownerID)
 	if err != nil {
+		return Bot{}, err
+	}
+	if err := s.ensureUserExists(ctx, ownerUUID); err != nil {
 		return Bot{}, err
 	}
 	normalizedType, err := normalizeBotType(req.Type)
@@ -127,6 +136,7 @@ func (s *Service) Create(ctx context.Context, ownerUserID string, req CreateBotR
 	return bot, nil
 }
 
+// Get returns a bot by its ID.
 func (s *Service) Get(ctx context.Context, botID string) (Bot, error) {
 	if s.queries == nil {
 		return Bot{}, fmt.Errorf("bot queries not configured")
@@ -142,6 +152,7 @@ func (s *Service) Get(ctx context.Context, botID string) (Bot, error) {
 	return toBot(row)
 }
 
+// ListByOwner returns bots owned by the given user.
 func (s *Service) ListByOwner(ctx context.Context, ownerUserID string) ([]Bot, error) {
 	if s.queries == nil {
 		return nil, fmt.Errorf("bot queries not configured")
@@ -165,15 +176,16 @@ func (s *Service) ListByOwner(ctx context.Context, ownerUserID string) ([]Bot, e
 	return items, nil
 }
 
-func (s *Service) ListByMember(ctx context.Context, userID string) ([]Bot, error) {
+// ListByMember returns bots where the user is a member.
+func (s *Service) ListByMember(ctx context.Context, channelIdentityID string) ([]Bot, error) {
 	if s.queries == nil {
 		return nil, fmt.Errorf("bot queries not configured")
 	}
-	userUUID, err := parseUUID(userID)
+	memberUUID, err := parseUUID(channelIdentityID)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.queries.ListBotsByMember(ctx, userUUID)
+	rows, err := s.queries.ListBotsByMember(ctx, memberUUID)
 	if err != nil {
 		return nil, err
 	}
@@ -188,12 +200,13 @@ func (s *Service) ListByMember(ctx context.Context, userID string) ([]Bot, error
 	return items, nil
 }
 
-func (s *Service) ListAccessible(ctx context.Context, userID string) ([]Bot, error) {
-	owned, err := s.ListByOwner(ctx, userID)
+// ListAccessible returns all bots the user can access (owned or member).
+func (s *Service) ListAccessible(ctx context.Context, channelIdentityID string) ([]Bot, error) {
+	owned, err := s.ListByOwner(ctx, channelIdentityID)
 	if err != nil {
 		return nil, err
 	}
-	members, err := s.ListByMember(ctx, userID)
+	members, err := s.ListByMember(ctx, channelIdentityID)
 	if err != nil {
 		return nil, err
 	}
@@ -213,6 +226,7 @@ func (s *Service) ListAccessible(ctx context.Context, userID string) ([]Bot, err
 	return items, nil
 }
 
+// Update updates bot profile fields.
 func (s *Service) Update(ctx context.Context, botID string, req UpdateBotRequest) (Bot, error) {
 	if s.queries == nil {
 		return Bot{}, fmt.Errorf("bot queries not configured")
@@ -264,6 +278,7 @@ func (s *Service) Update(ctx context.Context, botID string, req UpdateBotRequest
 	return toBot(row)
 }
 
+// TransferOwner transfers bot ownership to another user.
 func (s *Service) TransferOwner(ctx context.Context, botID string, ownerUserID string) (Bot, error) {
 	if s.queries == nil {
 		return Bot{}, fmt.Errorf("bot queries not configured")
@@ -276,6 +291,9 @@ func (s *Service) TransferOwner(ctx context.Context, botID string, ownerUserID s
 	if err != nil {
 		return Bot{}, err
 	}
+	if err := s.ensureUserExists(ctx, ownerUUID); err != nil {
+		return Bot{}, err
+	}
 	row, err := s.queries.UpdateBotOwner(ctx, sqlc.UpdateBotOwnerParams{
 		ID:          botUUID,
 		OwnerUserID: ownerUUID,
@@ -286,6 +304,7 @@ func (s *Service) TransferOwner(ctx context.Context, botID string, ownerUserID s
 	return toBot(row)
 }
 
+// Delete removes a bot and its associated resources.
 func (s *Service) Delete(ctx context.Context, botID string) error {
 	if s.queries == nil {
 		return fmt.Errorf("bot queries not configured")
@@ -298,16 +317,34 @@ func (s *Service) Delete(ctx context.Context, botID string) error {
 		return err
 	}
 	if s.containerLifecycle != nil {
+		s.logger.Info("cleaning up bot container before deletion", slog.String("bot_id", botID))
 		if err := s.containerLifecycle.CleanupBotContainer(ctx, botID); err != nil {
 			s.logger.Error("failed to cleanup bot container",
 				slog.String("bot_id", botID),
 				slog.Any("error", err),
 			)
 		}
+	} else {
+		s.logger.Warn("container lifecycle not configured, skipping container cleanup", slog.String("bot_id", botID))
 	}
 	return s.queries.DeleteBotByID(ctx, botUUID)
 }
 
+func (s *Service) ensureUserExists(ctx context.Context, userID pgtype.UUID) error {
+	if s.queries == nil {
+		return fmt.Errorf("bot queries not configured")
+	}
+	_, err := s.queries.GetUserByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrOwnerUserNotFound
+		}
+		return err
+	}
+	return nil
+}
+
+// UpsertMember creates or updates a bot membership.
 func (s *Service) UpsertMember(ctx context.Context, botID string, req UpsertMemberRequest) (BotMember, error) {
 	if s.queries == nil {
 		return BotMember{}, fmt.Errorf("bot queries not configured")
@@ -316,7 +353,7 @@ func (s *Service) UpsertMember(ctx context.Context, botID string, req UpsertMemb
 	if err != nil {
 		return BotMember{}, err
 	}
-	userUUID, err := parseUUID(req.UserID)
+	memberUUID, err := parseUUID(req.UserID)
 	if err != nil {
 		return BotMember{}, err
 	}
@@ -326,7 +363,7 @@ func (s *Service) UpsertMember(ctx context.Context, botID string, req UpsertMemb
 	}
 	row, err := s.queries.UpsertBotMember(ctx, sqlc.UpsertBotMemberParams{
 		BotID:  botUUID,
-		UserID: userUUID,
+		UserID: memberUUID,
 		Role:   role,
 	})
 	if err != nil {
@@ -335,6 +372,7 @@ func (s *Service) UpsertMember(ctx context.Context, botID string, req UpsertMemb
 	return toBotMember(row), nil
 }
 
+// ListMembers returns all members of a bot.
 func (s *Service) ListMembers(ctx context.Context, botID string) ([]BotMember, error) {
 	if s.queries == nil {
 		return nil, fmt.Errorf("bot queries not configured")
@@ -354,7 +392,8 @@ func (s *Service) ListMembers(ctx context.Context, botID string) ([]BotMember, e
 	return items, nil
 }
 
-func (s *Service) GetMember(ctx context.Context, botID, userID string) (BotMember, error) {
+// GetMember returns a specific bot member.
+func (s *Service) GetMember(ctx context.Context, botID, channelIdentityID string) (BotMember, error) {
 	if s.queries == nil {
 		return BotMember{}, fmt.Errorf("bot queries not configured")
 	}
@@ -362,13 +401,13 @@ func (s *Service) GetMember(ctx context.Context, botID, userID string) (BotMembe
 	if err != nil {
 		return BotMember{}, err
 	}
-	userUUID, err := parseUUID(userID)
+	memberUUID, err := parseUUID(channelIdentityID)
 	if err != nil {
 		return BotMember{}, err
 	}
 	row, err := s.queries.GetBotMember(ctx, sqlc.GetBotMemberParams{
 		BotID:  botUUID,
-		UserID: userUUID,
+		UserID: memberUUID,
 	})
 	if err != nil {
 		return BotMember{}, err
@@ -376,7 +415,8 @@ func (s *Service) GetMember(ctx context.Context, botID, userID string) (BotMembe
 	return toBotMember(row), nil
 }
 
-func (s *Service) DeleteMember(ctx context.Context, botID, userID string) error {
+// DeleteMember removes a member from a bot.
+func (s *Service) DeleteMember(ctx context.Context, botID, channelIdentityID string) error {
 	if s.queries == nil {
 		return fmt.Errorf("bot queries not configured")
 	}
@@ -384,18 +424,43 @@ func (s *Service) DeleteMember(ctx context.Context, botID, userID string) error 
 	if err != nil {
 		return err
 	}
-	userUUID, err := parseUUID(userID)
+	memberUUID, err := parseUUID(channelIdentityID)
 	if err != nil {
 		return err
 	}
 	return s.queries.DeleteBotMember(ctx, sqlc.DeleteBotMemberParams{
 		BotID:  botUUID,
-		UserID: userUUID,
+		UserID: memberUUID,
 	})
+}
+
+// UpsertMemberSimple creates or updates a bot membership with a direct channel identity ID and role.
+// This satisfies the router.BotMemberService interface.
+func (s *Service) UpsertMemberSimple(ctx context.Context, botID, channelIdentityID, role string) error {
+	_, err := s.UpsertMember(ctx, botID, UpsertMemberRequest{
+		UserID: channelIdentityID,
+		Role:   role,
+	})
+	return err
+}
+
+// IsMember checks if a user is a member of a bot.
+func (s *Service) IsMember(ctx context.Context, botID, channelIdentityID string) (bool, error) {
+	_, err := s.GetMember(ctx, botID, channelIdentityID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 func normalizeBotType(raw string) (string, error) {
 	normalized := strings.ToLower(strings.TrimSpace(raw))
+	if normalized == "" {
+		return BotTypePersonal, nil
+	}
 	switch normalized {
 	case BotTypePersonal, BotTypePublic:
 		return normalized, nil

@@ -107,7 +107,7 @@ import { useRouter } from 'vue-router'
 import { toTypedSchema } from '@vee-validate/zod'
 import { useForm } from 'vee-validate'
 import * as z from 'zod'
-import { useUserStore } from '@/store/user'
+import { useUserStore } from '@/store/User'
 import { ref } from 'vue'
 import { toast } from 'vue-sonner'
 import { useI18n } from 'vue-i18n'
@@ -135,8 +135,9 @@ const login = form.handleSubmit(async (values) => {
       loginHandle({
         id: data.user_id,
         username: data.username,
-        displayName: '',
-        role: '',
+        displayName: data.display_name ?? '',
+        role: data.role ?? '',
+        avatarUrl: data.avatar_url ?? '',
       }, data.access_token)
     } else {
       throw new Error(t('auth.loginFailed'))

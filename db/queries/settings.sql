@@ -1,55 +1,64 @@
 -- name: GetSettingsByUserID :one
-SELECT user_id, chat_model_id, memory_model_id, embedding_model_id, max_context_load_time, language
-FROM user_settings
-WHERE user_id = $1;
+SELECT id AS user_id, chat_model_id, memory_model_id, embedding_model_id, max_context_load_time, language
+FROM users
+WHERE id = $1;
 
 -- name: UpsertUserSettings :one
-INSERT INTO user_settings (user_id, chat_model_id, memory_model_id, embedding_model_id, max_context_load_time, language)
-VALUES ($1, $2, $3, $4, $5, $6)
-ON CONFLICT (user_id) DO UPDATE SET
-  chat_model_id = EXCLUDED.chat_model_id,
-  memory_model_id = EXCLUDED.memory_model_id,
-  embedding_model_id = EXCLUDED.embedding_model_id,
-  max_context_load_time = EXCLUDED.max_context_load_time,
-  language = EXCLUDED.language
-RETURNING user_id, chat_model_id, memory_model_id, embedding_model_id, max_context_load_time, language;
+UPDATE users
+SET chat_model_id = $2,
+    memory_model_id = $3,
+    embedding_model_id = $4,
+    max_context_load_time = $5,
+    language = $6,
+    updated_at = now()
+WHERE id = $1
+RETURNING id AS user_id, chat_model_id, memory_model_id, embedding_model_id, max_context_load_time, language;
 
 -- name: GetSettingsByBotID :one
-SELECT bot_id, max_context_load_time, language, allow_guest
-FROM bot_settings
-WHERE bot_id = $1;
-
--- name: GetBotModelConfigByBotID :one
 SELECT
-  bot_model_configs.bot_id,
+  bots.id AS bot_id,
+  bots.max_context_load_time,
+  bots.language,
+  bots.allow_guest,
   chat_models.model_id AS chat_model_id,
   memory_models.model_id AS memory_model_id,
   embedding_models.model_id AS embedding_model_id
-FROM bot_model_configs
-LEFT JOIN models AS chat_models ON chat_models.id = bot_model_configs.chat_model_id
-LEFT JOIN models AS memory_models ON memory_models.id = bot_model_configs.memory_model_id
-LEFT JOIN models AS embedding_models ON embedding_models.id = bot_model_configs.embedding_model_id
-WHERE bot_model_configs.bot_id = $1;
+FROM bots
+LEFT JOIN models AS chat_models ON chat_models.id = bots.chat_model_id
+LEFT JOIN models AS memory_models ON memory_models.id = bots.memory_model_id
+LEFT JOIN models AS embedding_models ON embedding_models.id = bots.embedding_model_id
+WHERE bots.id = $1;
 
 -- name: UpsertBotSettings :one
-INSERT INTO bot_settings (bot_id, max_context_load_time, language, allow_guest)
-VALUES ($1, $2, $3, $4)
-ON CONFLICT (bot_id) DO UPDATE SET
-  max_context_load_time = EXCLUDED.max_context_load_time,
-  language = EXCLUDED.language,
-  allow_guest = EXCLUDED.allow_guest
-RETURNING bot_id, max_context_load_time, language, allow_guest;
-
--- name: UpsertBotModelConfig :one
-INSERT INTO bot_model_configs (bot_id, chat_model_id, memory_model_id, embedding_model_id)
-VALUES ($1, $2, $3, $4)
-ON CONFLICT (bot_id) DO UPDATE SET
-  chat_model_id = COALESCE(EXCLUDED.chat_model_id, bot_model_configs.chat_model_id),
-  memory_model_id = COALESCE(EXCLUDED.memory_model_id, bot_model_configs.memory_model_id),
-  embedding_model_id = COALESCE(EXCLUDED.embedding_model_id, bot_model_configs.embedding_model_id)
-RETURNING bot_id, chat_model_id, memory_model_id, embedding_model_id;
+WITH updated AS (
+  UPDATE bots
+  SET max_context_load_time = sqlc.arg(max_context_load_time),
+      language = sqlc.arg(language),
+      allow_guest = sqlc.arg(allow_guest),
+      chat_model_id = COALESCE(sqlc.narg(chat_model_id)::uuid, bots.chat_model_id),
+      memory_model_id = COALESCE(sqlc.narg(memory_model_id)::uuid, bots.memory_model_id),
+      embedding_model_id = COALESCE(sqlc.narg(embedding_model_id)::uuid, bots.embedding_model_id),
+      updated_at = now()
+  WHERE bots.id = sqlc.arg(id)
+  RETURNING bots.id, bots.max_context_load_time, bots.language, bots.allow_guest, bots.chat_model_id, bots.memory_model_id, bots.embedding_model_id
+)
+SELECT
+  updated.id AS bot_id,
+  updated.max_context_load_time,
+  updated.language,
+  updated.allow_guest,
+  chat_models.model_id AS chat_model_id,
+  memory_models.model_id AS memory_model_id,
+  embedding_models.model_id AS embedding_model_id
+FROM updated
+LEFT JOIN models AS chat_models ON chat_models.id = updated.chat_model_id
+LEFT JOIN models AS memory_models ON memory_models.id = updated.memory_model_id
+LEFT JOIN models AS embedding_models ON embedding_models.id = updated.embedding_model_id;
 
 -- name: DeleteSettingsByBotID :exec
-DELETE FROM bot_settings
-WHERE bot_id = $1;
-
+UPDATE bots
+SET max_context_load_time = 1440,
+    language = 'auto',
+    allow_guest = false,
+    updated_at = now()
+WHERE id = $1;

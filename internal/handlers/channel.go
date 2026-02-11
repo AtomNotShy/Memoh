@@ -23,26 +23,26 @@ func NewChannelHandler(service *channel.Service, registry *channel.Registry) *Ch
 
 func (h *ChannelHandler) Register(e *echo.Echo) {
 	group := e.Group("/users/me/channels")
-	group.GET("/:platform", h.GetUserConfig)
-	group.PUT("/:platform", h.UpsertUserConfig)
+	group.GET("/:platform", h.GetChannelIdentityConfig)
+	group.PUT("/:platform", h.UpsertChannelIdentityConfig)
 
 	metaGroup := e.Group("/channels")
 	metaGroup.GET("", h.ListChannels)
 	metaGroup.GET("/:platform", h.GetChannel)
 }
 
-// GetUserConfig godoc
+// GetChannelIdentityConfig godoc
 // @Summary Get channel user config
 // @Description Get channel binding configuration for current user
 // @Tags channel
 // @Param platform path string true "Channel platform"
-// @Success 200 {object} channel.ChannelUserBinding
+// @Success 200 {object} channel.ChannelIdentityBinding
 // @Failure 400 {object} ErrorResponse
 // @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /users/me/channels/{platform} [get]
-func (h *ChannelHandler) GetUserConfig(c echo.Context) error {
-	userID, err := h.requireUserID(c)
+func (h *ChannelHandler) GetChannelIdentityConfig(c echo.Context) error {
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
@@ -50,7 +50,7 @@ func (h *ChannelHandler) GetUserConfig(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	resp, err := h.service.GetUserConfig(c.Request().Context(), userID, channelType)
+	resp, err := h.service.GetChannelIdentityConfig(c.Request().Context(), channelIdentityID, channelType)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			return echo.NewHTTPError(http.StatusNotFound, err.Error())
@@ -60,18 +60,18 @@ func (h *ChannelHandler) GetUserConfig(c echo.Context) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
-// UpsertUserConfig godoc
+// UpsertChannelIdentityConfig godoc
 // @Summary Update channel user config
 // @Description Update channel binding configuration for current user
 // @Tags channel
 // @Param platform path string true "Channel platform"
-// @Param payload body channel.UpsertUserConfigRequest true "Channel user config payload"
-// @Success 200 {object} channel.ChannelUserBinding
+// @Param payload body channel.UpsertChannelIdentityConfigRequest true "Channel user config payload"
+// @Success 200 {object} channel.ChannelIdentityBinding
 // @Failure 400 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /users/me/channels/{platform} [put]
-func (h *ChannelHandler) UpsertUserConfig(c echo.Context) error {
-	userID, err := h.requireUserID(c)
+func (h *ChannelHandler) UpsertChannelIdentityConfig(c echo.Context) error {
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
@@ -79,14 +79,14 @@ func (h *ChannelHandler) UpsertUserConfig(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	var req channel.UpsertUserConfigRequest
+	var req channel.UpsertChannelIdentityConfigRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 	if req.Config == nil {
 		req.Config = map[string]any{}
 	}
-	resp, err := h.service.UpsertUserConfig(c.Request().Context(), userID, channelType, req)
+	resp, err := h.service.UpsertChannelIdentityConfig(c.Request().Context(), channelIdentityID, channelType, req)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
@@ -160,13 +160,13 @@ func (h *ChannelHandler) GetChannel(c echo.Context) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
-func (h *ChannelHandler) requireUserID(c echo.Context) (string, error) {
-	userID, err := auth.UserIDFromContext(c)
+func (h *ChannelHandler) requireChannelIdentityID(c echo.Context) (string, error) {
+	channelIdentityID, err := auth.ChannelIdentityIDFromContext(c)
 	if err != nil {
 		return "", err
 	}
-	if err := identity.ValidateUserID(userID); err != nil {
+	if err := identity.ValidateChannelIdentityID(channelIdentityID); err != nil {
 		return "", echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	return userID, nil
+	return channelIdentityID, nil
 }

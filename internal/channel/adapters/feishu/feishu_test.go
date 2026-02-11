@@ -70,6 +70,9 @@ func TestExtractFeishuInboundP2P(t *testing.T) {
 	if got.ReplyTarget != "ou_1" {
 		t.Fatalf("unexpected reply target: %s", got.ReplyTarget)
 	}
+	if mentioned, _ := got.Metadata["is_mentioned"].(bool); mentioned {
+		t.Fatalf("unexpected mention flag for p2p message")
+	}
 }
 
 func TestExtractFeishuInboundGroup(t *testing.T) {
@@ -101,6 +104,9 @@ func TestExtractFeishuInboundGroup(t *testing.T) {
 	if got.ReplyTarget != "chat_id:oc_2" {
 		t.Fatalf("unexpected reply target: %s", got.ReplyTarget)
 	}
+	if mentioned, _ := got.Metadata["is_mentioned"].(bool); mentioned {
+		t.Fatalf("unexpected mention flag for group message without mentions")
+	}
 }
 
 func TestExtractFeishuInboundNonText(t *testing.T) {
@@ -117,5 +123,29 @@ func TestExtractFeishuInboundNonText(t *testing.T) {
 	got := extractFeishuInbound(event)
 	if got.Message.PlainText() != "" {
 		t.Fatalf("expected empty text, got %s", got.Message.PlainText())
+	}
+}
+
+func TestExtractFeishuInboundMention(t *testing.T) {
+	t.Parallel()
+
+	text := `{"text":"@bot hi","mentions":[{"key":"@bot"}]}`
+	msgType := larkim.MsgTypeText
+	chatType := "group"
+	chatID := "oc_3"
+	event := &larkim.P2MessageReceiveV1{
+		Event: &larkim.P2MessageReceiveV1Data{
+			Message: &larkim.EventMessage{
+				MessageType: &msgType,
+				Content:     &text,
+				ChatType:    &chatType,
+				ChatId:      &chatID,
+			},
+		},
+	}
+	got := extractFeishuInbound(event)
+	mentioned, ok := got.Metadata["is_mentioned"].(bool)
+	if !ok || !mentioned {
+		t.Fatalf("expected mention flag to be true")
 	}
 }

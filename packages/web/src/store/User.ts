@@ -8,6 +8,7 @@ export interface UserInfo {
   username: string;
   role: string;
   displayName: string;
+  avatarUrl: string;
 }
 
 export const useUserStore = defineStore(
@@ -18,6 +19,7 @@ export const useUserStore = defineStore(
       username: '',
       role: '',
       displayName: '',
+      avatarUrl: '',
     })
 
     const localToken = useLocalStorage('token', '')
@@ -26,6 +28,15 @@ export const useUserStore = defineStore(
       localToken.value = token
       for (const key of Object.keys(userData) as (keyof UserInfo)[]) {
         userInfo[key] = userData[key]
+      }
+    }
+
+    const patchUserInfo = (patch: Partial<UserInfo>) => {
+      for (const key of Object.keys(patch) as (keyof UserInfo)[]) {
+        const value = patch[key]
+        if (value !== undefined) {
+          userInfo[key] = value
+        }
       }
     }
 
@@ -51,6 +62,7 @@ export const useUserStore = defineStore(
     return {
       userInfo,
       login,
+      patchUserInfo,
       exitLogin,
     }
   },

@@ -409,11 +409,11 @@ func (s *Service) Get(ctx context.Context, memoryID string) (MemoryItem, error) 
 
 func (s *Service) GetAll(ctx context.Context, req GetAllRequest) (SearchResponse, error) {
 	filters := map[string]any{}
+	for k, v := range req.Filters {
+		filters[k] = v
+	}
 	if req.BotID != "" {
 		filters["botId"] = req.BotID
-	}
-	if req.SessionID != "" {
-		filters["sessionId"] = req.SessionID
 	}
 	if req.RunID != "" {
 		filters["runId"] = req.RunID
@@ -445,11 +445,11 @@ func (s *Service) Delete(ctx context.Context, memoryID string) (DeleteResponse, 
 
 func (s *Service) DeleteAll(ctx context.Context, req DeleteAllRequest) (DeleteResponse, error) {
 	filters := map[string]any{}
+	for k, v := range req.Filters {
+		filters[k] = v
+	}
 	if req.BotID != "" {
 		filters["botId"] = req.BotID
-	}
-	if req.SessionID != "" {
-		filters["sessionId"] = req.SessionID
 	}
 	if req.RunID != "" {
 		filters["runId"] = req.RunID
@@ -756,9 +756,6 @@ func buildFilters(req AddRequest) map[string]any {
 	if req.BotID != "" {
 		filters["botId"] = req.BotID
 	}
-	if req.SessionID != "" {
-		filters["sessionId"] = req.SessionID
-	}
 	if req.RunID != "" {
 		filters["runId"] = req.RunID
 	}
@@ -773,9 +770,6 @@ func buildSearchFilters(req SearchRequest) map[string]any {
 	if req.BotID != "" {
 		filters["botId"] = req.BotID
 	}
-	if req.SessionID != "" {
-		filters["sessionId"] = req.SessionID
-	}
 	if req.RunID != "" {
 		filters["runId"] = req.RunID
 	}
@@ -789,9 +783,6 @@ func buildEmbedFilters(req EmbedUpsertRequest) map[string]any {
 	}
 	if req.BotID != "" {
 		filters["botId"] = req.BotID
-	}
-	if req.SessionID != "" {
-		filters["sessionId"] = req.SessionID
 	}
 	if req.RunID != "" {
 		filters["runId"] = req.RunID
@@ -882,9 +873,6 @@ func payloadToMemoryItem(id string, payload map[string]any) MemoryItem {
 	}
 	if v, ok := payload["botId"].(string); ok {
 		item.BotID = v
-	}
-	if v, ok := payload["sessionId"].(string); ok {
-		item.SessionID = v
 	}
 	if v, ok := payload["runId"].(string); ok {
 		item.RunID = v

@@ -98,7 +98,10 @@
         value="settings"
         class="mt-6"
       >
-        <BotSettings :bot-id="botId" />
+        <BotSettings
+          :bot-id="botId"
+          :bot-type="bot?.type || ''"
+        />
       </TabsContent>
     </Tabs>
   </section>

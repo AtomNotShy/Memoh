@@ -138,16 +138,16 @@ import {
   FormField,
   FormControl,
   FormItem,
+  Separator,
+  Label,
+  Spinner,
+  Switch,
   Select,
   SelectContent,
   SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Separator,
-  Label,
-  Spinner,
-  Switch,
 } from '@memoh/ui'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
@@ -163,14 +163,17 @@ const isEdit = computed(() => !!editBot.value)
 const formSchema = toTypedSchema(z.object({
   display_name: z.string().min(1),
   avatar_url: z.string().optional(),
-  type: z.string().min(1),
-  is_active: z.coerce.boolean().optional(),
+  type: z.string(),
+  is_active: z.boolean().optional(),
 }))
 
 const form = useForm({
   validationSchema: formSchema,
   initialValues: {
+    display_name: '',
+    avatar_url: '',
     type: 'personal',
+    is_active: true,
   },
 })
 
@@ -186,11 +189,21 @@ watch(open, (val) => {
       values: {
         display_name: editBot.value.display_name,
         avatar_url: editBot.value.avatar_url || '',
+        type: editBot.value.type === 'public' ? 'public' : 'personal',
         is_active: editBot.value.is_active,
       },
     })
+  } else if (val) {
+    form.resetForm({
+      values: {
+        display_name: '',
+        avatar_url: '',
+        type: 'personal',
+        is_active: true,
+      },
+    })
   } else if (!val) {
-    form.resetForm({ values: { display_name: '', avatar_url: '', type: 'personal' } })
+    form.resetForm()
     editBot.value = null
   }
 })
@@ -208,7 +221,7 @@ const handleSubmit = form.handleSubmit(async (values) => {
       await createBot({
         display_name: values.display_name,
         avatar_url: values.avatar_url || undefined,
-        type: values.type || undefined,
+        type: values.type,
         is_active: true,
       })
     }

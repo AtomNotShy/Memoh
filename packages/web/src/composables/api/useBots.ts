@@ -10,7 +10,7 @@ export interface BotInfo {
   avatar_url: string
   type: string
   is_active: boolean
-  owner_user_id: string
+  owner_user_id?: string
   metadata: Record<string, unknown>
   created_at: string
   updated_at: string

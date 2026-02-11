@@ -59,7 +59,7 @@
                     <SelectContent>
                       <SelectGroup>
                         <SelectItem value="stdio">
-                          Stdio
+                          {{ $t('mcp.types.stdio') }}
                         </SelectItem>
                       </SelectGroup>
                     </SelectContent>

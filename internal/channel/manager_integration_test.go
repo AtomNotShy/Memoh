@@ -12,26 +12,25 @@ import (
 )
 
 type fakeConfigStore struct {
-	effectiveConfig ChannelConfig
-	userConfig      ChannelUserBinding
-	configsByType   map[ChannelType][]ChannelConfig
-	session         ChannelSession
-	boundUserID     string
+	effectiveConfig        ChannelConfig
+	channelIdentityConfig  ChannelIdentityBinding
+	configsByType          map[ChannelType][]ChannelConfig
+	boundChannelIdentityID string
 }
 
 func (f *fakeConfigStore) ResolveEffectiveConfig(ctx context.Context, botID string, channelType ChannelType) (ChannelConfig, error) {
 	return f.effectiveConfig, nil
 }
 
-func (f *fakeConfigStore) GetUserConfig(ctx context.Context, actorUserID string, channelType ChannelType) (ChannelUserBinding, error) {
-	if f.userConfig.ID == "" && len(f.userConfig.Config) == 0 {
-		return ChannelUserBinding{}, fmt.Errorf("channel user config not found")
+func (f *fakeConfigStore) GetChannelIdentityConfig(ctx context.Context, channelIdentityID string, channelType ChannelType) (ChannelIdentityBinding, error) {
+	if f.channelIdentityConfig.ID == "" && len(f.channelIdentityConfig.Config) == 0 {
+		return ChannelIdentityBinding{}, fmt.Errorf("channel user config not found")
 	}
-	return f.userConfig, nil
+	return f.channelIdentityConfig, nil
 }
 
-func (f *fakeConfigStore) UpsertUserConfig(ctx context.Context, actorUserID string, channelType ChannelType, req UpsertUserConfigRequest) (ChannelUserBinding, error) {
-	return f.userConfig, nil
+func (f *fakeConfigStore) UpsertChannelIdentityConfig(ctx context.Context, channelIdentityID string, channelType ChannelType, req UpsertChannelIdentityConfigRequest) (ChannelIdentityBinding, error) {
+	return f.channelIdentityConfig, nil
 }
 
 func (f *fakeConfigStore) ListConfigsByType(ctx context.Context, channelType ChannelType) ([]ChannelConfig, error) {
@@ -41,26 +40,11 @@ func (f *fakeConfigStore) ListConfigsByType(ctx context.Context, channelType Cha
 	return f.configsByType[channelType], nil
 }
 
-func (f *fakeConfigStore) ResolveUserBinding(ctx context.Context, channelType ChannelType, criteria BindingCriteria) (string, error) {
-	if f.boundUserID == "" {
+func (f *fakeConfigStore) ResolveChannelIdentityBinding(ctx context.Context, channelType ChannelType, criteria BindingCriteria) (string, error) {
+	if f.boundChannelIdentityID == "" {
 		return "", fmt.Errorf("channel user binding not found")
 	}
-	return f.boundUserID, nil
-}
-
-func (f *fakeConfigStore) ListSessionsByBotPlatform(ctx context.Context, botID, platform string) ([]ChannelSession, error) {
-	return nil, nil
-}
-
-func (f *fakeConfigStore) GetChannelSession(ctx context.Context, sessionID string) (ChannelSession, error) {
-	if f.session.SessionID == sessionID {
-		return f.session, nil
-	}
-	return ChannelSession{}, nil
-}
-
-func (f *fakeConfigStore) UpsertChannelSession(ctx context.Context, sessionID string, botID string, channelConfigID string, userID string, contactID string, platform string, replyTarget string, threadID string, metadata map[string]any) error {
-	return nil
+	return f.boundChannelIdentityID, nil
 }
 
 type fakeInboundProcessorIntegration struct {
@@ -101,8 +85,8 @@ func (f *fakeAdapter) Descriptor() Descriptor {
 	return Descriptor{Type: f.channelType, DisplayName: "Fake", Capabilities: ChannelCapabilities{Text: true}}
 }
 
-func (f *fakeAdapter) ResolveTarget(userConfig map[string]any) (string, error) {
-	value := strings.TrimSpace(ReadString(userConfig, "target"))
+func (f *fakeAdapter) ResolveTarget(channelIdentityConfig map[string]any) (string, error) {
+	value := strings.TrimSpace(ReadString(channelIdentityConfig, "target"))
 	if value == "" {
 		return "", fmt.Errorf("missing target")
 	}
@@ -135,13 +119,7 @@ func TestManagerHandleInboundIntegratesAdapter(t *testing.T) {
 	t.Parallel()
 
 	log := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{}))
-	store := &fakeConfigStore{
-		session: ChannelSession{
-			SessionID: "telegram:bot-1:chat-1",
-			BotID:     "bot-1",
-			UserID:    "user-1",
-		},
-	}
+	store := &fakeConfigStore{}
 	processor := &fakeInboundProcessorIntegration{
 		resp: &OutboundMessage{
 			Target: "123",
@@ -202,7 +180,7 @@ func TestManagerSendUsesBinding(t *testing.T) {
 			Credentials: map[string]any{"botToken": "token"},
 			UpdatedAt:   time.Now(),
 		},
-		userConfig: ChannelUserBinding{
+		channelIdentityConfig: ChannelIdentityBinding{
 			ID:     "binding-1",
 			Config: map[string]any{"target": "alice"},
 		},
@@ -213,7 +191,7 @@ func TestManagerSendUsesBinding(t *testing.T) {
 	manager.RegisterAdapter(adapter)
 
 	err := manager.Send(context.Background(), "bot-1", ChannelType("test"), SendRequest{
-		UserID: "user-1",
+		ChannelIdentityID: "user-1",
 		Message: Message{
 			Text: "hello",
 		},

@@ -13,15 +13,14 @@ import (
 )
 
 const (
-	claimSubject     = "sub"
-	claimUserID      = "user_id"
-	claimType        = "typ"
-	claimBotID       = "bot_id"
-	claimPlatform    = "platform"
-	claimReplyTarget = "reply_target"
-	claimSessionID   = "session_id"
-	claimContactID   = "contact_id"
-	sessionTokenType = "channel_session"
+	claimSubject           = "sub"
+	claimUserID            = "user_id"
+	claimChannelIdentityID = "channel_identity_id"
+	claimType              = "typ"
+	claimBotID             = "bot_id"
+	claimChatID            = "chat_id"
+	claimRouteID           = "route_id"
+	chatTokenType          = "chat_route"
 )
 
 // JWTMiddleware returns a JWT auth middleware configured for HS256 tokens.
@@ -53,7 +52,15 @@ func UserIDFromContext(c echo.Context) (string, error) {
 	if userID := claimString(claims, claimSubject); userID != "" {
 		return userID, nil
 	}
+	if legacyChannelIdentityID := claimString(claims, claimChannelIdentityID); legacyChannelIdentityID != "" {
+		return legacyChannelIdentityID, nil
+	}
 	return "", echo.NewHTTPError(http.StatusUnauthorized, "user id missing")
+}
+
+// ChannelIdentityIDFromContext is kept as compatibility alias and returns user id.
+func ChannelIdentityIDFromContext(c echo.Context) (string, error) {
+	return UserIDFromContext(c)
 }
 
 // GenerateToken creates a signed JWT for the user.
@@ -71,10 +78,11 @@ func GenerateToken(userID, secret string, expiresIn time.Duration) (string, time
 	now := time.Now().UTC()
 	expiresAt := now.Add(expiresIn)
 	claims := jwt.MapClaims{
-		claimSubject: userID,
-		claimUserID:  userID,
-		"iat":        now.Unix(),
-		"exp":        expiresAt.Unix(),
+		claimSubject:           userID,
+		claimUserID:            userID,
+		claimChannelIdentityID: userID, // legacy compatibility for handlers still reading channel_identity_id
+		"iat":                  now.Unix(),
+		"exp":                  expiresAt.Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := token.SignedString([]byte(secret))
@@ -84,24 +92,28 @@ func GenerateToken(userID, secret string, expiresIn time.Duration) (string, time
 	return signed, expiresAt, nil
 }
 
-type SessionToken struct {
-	BotID       string
-	Platform    string
-	ReplyTarget string
-	SessionID   string
-	ContactID   string
+// ChatToken holds the claims for a chat-based JWT used for route-based reply.
+type ChatToken struct {
+	BotID             string
+	ChatID            string
+	RouteID           string
+	UserID            string
+	ChannelIdentityID string
 }
 
-// GenerateSessionToken creates a signed JWT for channel session reply.
-func GenerateSessionToken(info SessionToken, secret string, expiresIn time.Duration) (string, time.Time, error) {
+// GenerateChatToken creates a signed JWT for chat route reply.
+func GenerateChatToken(info ChatToken, secret string, expiresIn time.Duration) (string, time.Time, error) {
 	if strings.TrimSpace(info.BotID) == "" {
 		return "", time.Time{}, fmt.Errorf("bot id is required")
 	}
-	if strings.TrimSpace(info.Platform) == "" {
-		return "", time.Time{}, fmt.Errorf("platform is required")
+	if strings.TrimSpace(info.ChatID) == "" {
+		return "", time.Time{}, fmt.Errorf("chat id is required")
 	}
-	if strings.TrimSpace(info.ReplyTarget) == "" {
-		return "", time.Time{}, fmt.Errorf("reply target is required")
+	if strings.TrimSpace(info.UserID) == "" {
+		info.UserID = strings.TrimSpace(info.ChannelIdentityID)
+	}
+	if strings.TrimSpace(info.UserID) == "" {
+		return "", time.Time{}, fmt.Errorf("user id is required")
 	}
 	if strings.TrimSpace(secret) == "" {
 		return "", time.Time{}, fmt.Errorf("jwt secret is required")
@@ -113,14 +125,14 @@ func GenerateSessionToken(info SessionToken, secret string, expiresIn time.Durat
 	now := time.Now().UTC()
 	expiresAt := now.Add(expiresIn)
 	claims := jwt.MapClaims{
-		claimType:        sessionTokenType,
-		claimBotID:       info.BotID,
-		claimPlatform:    info.Platform,
-		claimReplyTarget: info.ReplyTarget,
-		claimSessionID:   info.SessionID,
-		claimContactID:   info.ContactID,
-		"iat":            now.Unix(),
-		"exp":            expiresAt.Unix(),
+		claimType:              chatTokenType,
+		claimBotID:             info.BotID,
+		claimChatID:            info.ChatID,
+		claimRouteID:           info.RouteID,
+		claimUserID:            info.UserID,
+		claimChannelIdentityID: info.ChannelIdentityID,
+		"iat":                  now.Unix(),
+		"exp":                  expiresAt.Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := token.SignedString([]byte(secret))
@@ -130,26 +142,30 @@ func GenerateSessionToken(info SessionToken, secret string, expiresIn time.Durat
 	return signed, expiresAt, nil
 }
 
-// SessionTokenFromContext extracts the session token claims from context.
-func SessionTokenFromContext(c echo.Context) (SessionToken, error) {
+// ChatTokenFromContext extracts the chat token claims from context.
+func ChatTokenFromContext(c echo.Context) (ChatToken, error) {
 	token, ok := c.Get("user").(*jwt.Token)
 	if !ok || token == nil || !token.Valid {
-		return SessionToken{}, echo.NewHTTPError(http.StatusUnauthorized, "invalid token")
+		return ChatToken{}, echo.NewHTTPError(http.StatusUnauthorized, "invalid token")
 	}
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
-		return SessionToken{}, echo.NewHTTPError(http.StatusUnauthorized, "invalid token claims")
+		return ChatToken{}, echo.NewHTTPError(http.StatusUnauthorized, "invalid token claims")
 	}
-	if claimString(claims, claimType) != sessionTokenType {
-		return SessionToken{}, echo.NewHTTPError(http.StatusUnauthorized, "invalid session token")
+	if claimString(claims, claimType) != chatTokenType {
+		return ChatToken{}, echo.NewHTTPError(http.StatusUnauthorized, "invalid chat token")
 	}
-	return SessionToken{
-		BotID:       claimString(claims, claimBotID),
-		Platform:    claimString(claims, claimPlatform),
-		ReplyTarget: claimString(claims, claimReplyTarget),
-		SessionID:   claimString(claims, claimSessionID),
-		ContactID:   claimString(claims, claimContactID),
-	}, nil
+	info := ChatToken{
+		BotID:             claimString(claims, claimBotID),
+		ChatID:            claimString(claims, claimChatID),
+		RouteID:           claimString(claims, claimRouteID),
+		UserID:            claimString(claims, claimUserID),
+		ChannelIdentityID: claimString(claims, claimChannelIdentityID),
+	}
+	if strings.TrimSpace(info.UserID) == "" {
+		info.UserID = strings.TrimSpace(info.ChannelIdentityID)
+	}
+	return info, nil
 }
 
 func claimString(claims jwt.MapClaims, key string) string {

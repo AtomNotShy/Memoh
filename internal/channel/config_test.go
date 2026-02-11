@@ -63,7 +63,7 @@ func (a *testConfigAdapter) ResolveTarget(raw map[string]any) (string, error) {
 
 func (a *testConfigAdapter) MatchBinding(raw map[string]any, criteria channel.BindingCriteria) bool {
 	value := channel.ReadString(raw, "user")
-	return value != "" && value == criteria.ExternalID
+	return value != "" && value == criteria.SubjectID
 }
 
 func (a *testConfigAdapter) BuildUserConfig(identity channel.Identity) map[string]any {

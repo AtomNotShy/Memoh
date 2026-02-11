@@ -75,7 +75,7 @@ export interface BotChannelItem {
   configured: boolean
 }
 
-// ---- Query: 获取可用渠道类型元信息 ----
+// ---- Query: 获取可用接入平台类型元信息 ----
 
 export function useChannelMetas() {
   return useQuery({
@@ -84,7 +84,7 @@ export function useChannelMetas() {
   })
 }
 
-// ---- Query: 获取某 Bot 的所有渠道配置（组合查询） ----
+// ---- Query: 获取某 Bot 的所有平台配置（组合查询） ----
 
 export function useBotChannels(botId: Ref<string>) {
   const queryCache = useQueryCache()
@@ -92,10 +92,10 @@ export function useBotChannels(botId: Ref<string>) {
   const query = useQuery({
     key: () => ['bot-channels', botId.value],
     query: async (): Promise<BotChannelItem[]> => {
-      // 1. 获取所有渠道元信息
+      // 1. 获取所有平台元信息
       const metas = await fetchApi<ChannelMeta[]>('/channels')
 
-      // 2. 过滤掉 configless 的类型（cli / web 等本地渠道）
+      // 2. 过滤掉 configless 的类型（cli / web 等本地平台）
       const configurableTypes = metas.filter((m) => !m.configless)
 
       // 3. 并行获取每种类型的 bot 配置
@@ -127,7 +127,7 @@ export function useBotChannels(botId: Ref<string>) {
   }
 }
 
-// ---- Mutation: 创建/更新 Bot 渠道配置 ----
+// ---- Mutation: 创建/更新 Bot 平台配置 ----
 
 export function useUpsertBotChannel(botId: Ref<string>) {
   const queryCache = useQueryCache()

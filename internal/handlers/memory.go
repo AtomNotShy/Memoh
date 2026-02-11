@@ -2,31 +2,32 @@ package handlers
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/memohai/memoh/internal/accounts"
 	"github.com/memohai/memoh/internal/auth"
-	"github.com/memohai/memoh/internal/bots"
+	"github.com/memohai/memoh/internal/chat"
 	"github.com/memohai/memoh/internal/identity"
 	"github.com/memohai/memoh/internal/memory"
-	"github.com/memohai/memoh/internal/users"
 )
 
+// MemoryHandler handles memory CRUD operations scoped by chat.
 type MemoryHandler struct {
-	service     *memory.Service
-	botService  *bots.Service
-	userService *users.Service
-	logger      *slog.Logger
+	service        *memory.Service
+	chatService    *chat.Service
+	accountService *accounts.Service
+	logger         *slog.Logger
 }
 
 type memoryAddPayload struct {
 	Message          string           `json:"message,omitempty"`
 	Messages         []memory.Message `json:"messages,omitempty"`
+	Namespace        string           `json:"namespace,omitempty"`
 	RunID            string           `json:"run_id,omitempty"`
 	Metadata         map[string]any   `json:"metadata,omitempty"`
 	Filters          map[string]any   `json:"filters,omitempty"`
@@ -43,40 +44,29 @@ type memorySearchPayload struct {
 	EmbeddingEnabled *bool          `json:"embedding_enabled,omitempty"`
 }
 
-type memoryEmbedUpsertPayload struct {
-	Type     string            `json:"type"`
-	Provider string            `json:"provider,omitempty"`
-	Model    string            `json:"model,omitempty"`
-	Input    memory.EmbedInput `json:"input"`
-	Source   string            `json:"source,omitempty"`
-	RunID    string            `json:"run_id,omitempty"`
-	Metadata map[string]any    `json:"metadata,omitempty"`
-	Filters  map[string]any    `json:"filters,omitempty"`
+// namespaceScope holds namespace + scopeId for a single memory scope.
+type namespaceScope struct {
+	Namespace string
+	ScopeID   string
 }
 
-type memoryDeleteAllPayload struct {
-	RunID string `json:"run_id,omitempty"`
-}
-
-func NewMemoryHandler(log *slog.Logger, service *memory.Service, botService *bots.Service, userService *users.Service) *MemoryHandler {
+// NewMemoryHandler creates a MemoryHandler.
+func NewMemoryHandler(log *slog.Logger, service *memory.Service, chatService *chat.Service, accountService *accounts.Service) *MemoryHandler {
 	return &MemoryHandler{
-		service:     service,
-		botService:  botService,
-		userService: userService,
-		logger:      log.With(slog.String("handler", "memory")),
+		service:        service,
+		chatService:    chatService,
+		accountService: accountService,
+		logger:         log.With(slog.String("handler", "memory")),
 	}
 }
 
+// Register registers chat-level memory routes.
 func (h *MemoryHandler) Register(e *echo.Echo) {
-	group := e.Group("/bots/:bot_id/memory")
-	group.POST("/add", h.Add)
-	group.POST("/embed", h.EmbedUpsert)
-	group.POST("/search", h.Search)
-	group.POST("/update", h.Update)
-	group.GET("/memories/:memoryId", h.Get)
-	group.GET("/memories", h.GetAll)
-	group.DELETE("/memories/:memoryId", h.Delete)
-	group.DELETE("/memories", h.DeleteAll)
+	chatGroup := e.Group("/chats/:chat_id/memory")
+	chatGroup.POST("", h.ChatAdd)
+	chatGroup.POST("/search", h.ChatSearch)
+	chatGroup.GET("", h.ChatGetAll)
+	chatGroup.DELETE("", h.ChatDeleteAll)
 }
 
 func (h *MemoryHandler) checkService() error {
@@ -86,106 +76,52 @@ func (h *MemoryHandler) checkService() error {
 	return nil
 }
 
-// EmbedUpsert godoc
-// @Summary Embed and upsert memory
-// @Description Embed text or multimodal input and upsert into memory store. Auth: Bearer JWT determines user_id (sub or user_id).
-// @Tags memory
-// @Param payload body memoryEmbedUpsertPayload true "Embed upsert request"
-// @Success 200 {object} memory.EmbedUpsertResponse
-// @Failure 400 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
-// @Router /bots/{bot_id}/memory/embed [post]
-func (h *MemoryHandler) EmbedUpsert(c echo.Context) error {
+// --- Chat-level memory endpoints ---
+
+// ChatAdd adds memory to a specific namespace (validated against chat_settings).
+func (h *MemoryHandler) ChatAdd(c echo.Context) error {
 	if err := h.checkService(); err != nil {
 		return err
 	}
-
-	userID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
-	botID := strings.TrimSpace(c.Param("bot_id"))
-	if botID == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
+	chatID := strings.TrimSpace(c.Param("chat_id"))
+	if chatID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "chat_id is required")
 	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+	if err := h.requireChatParticipant(c.Request().Context(), chatID, channelIdentityID); err != nil {
 		return err
-	}
-	sessionID := strings.TrimSpace(c.QueryParam("session_id"))
-	if sessionID == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "session_id is required")
-	}
-
-	var payload memoryEmbedUpsertPayload
-	if err := c.Bind(&payload); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-	req := memory.EmbedUpsertRequest{
-		Type:      payload.Type,
-		Provider:  payload.Provider,
-		Model:     payload.Model,
-		Input:     payload.Input,
-		Source:    payload.Source,
-		BotID:     botID,
-		SessionID: sessionID,
-		RunID:     payload.RunID,
-		Metadata:  payload.Metadata,
-		Filters:   payload.Filters,
-	}
-
-	resp, err := h.service.EmbedUpsert(c.Request().Context(), req)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	return c.JSON(http.StatusOK, resp)
-}
-
-// Add godoc
-// @Summary Add memory
-// @Description Add memory for a user via memory. Auth: Bearer JWT determines user_id (sub or user_id).
-// @Tags memory
-// @Param payload body memoryAddPayload true "Add request"
-// @Success 200 {object} memory.SearchResponse
-// @Failure 400 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
-// @Router /bots/{bot_id}/memory/add [post]
-func (h *MemoryHandler) Add(c echo.Context) error {
-	if err := h.checkService(); err != nil {
-		return err
-	}
-
-	userID, err := h.requireUserID(c)
-	if err != nil {
-		return err
-	}
-	botID := strings.TrimSpace(c.Param("bot_id"))
-	if botID == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
-	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
-		return err
-	}
-	sessionID := strings.TrimSpace(c.QueryParam("session_id"))
-	if sessionID == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "session_id is required")
 	}
 
 	var payload memoryAddPayload
 	if err := c.Bind(&payload); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
+
+	namespace := strings.TrimSpace(payload.Namespace)
+	if namespace == "" {
+		namespace = "chat"
+	}
+
+	// Resolve correct scopeId/botId and validate namespace is enabled.
+	scopeID, botID, err := h.resolveWriteScope(c.Request().Context(), chatID, channelIdentityID, namespace)
+	if err != nil {
+		return err
+	}
+
+	filters := buildNamespaceFilters(namespace, scopeID, payload.Filters)
 	req := memory.AddRequest{
 		Message:          payload.Message,
 		Messages:         payload.Messages,
 		BotID:            botID,
-		SessionID:        sessionID,
 		RunID:            payload.RunID,
 		Metadata:         payload.Metadata,
-		Filters:          payload.Filters,
+		Filters:          filters,
 		Infer:            payload.Infer,
 		EmbeddingEnabled: payload.EmbeddingEnabled,
 	}
-
 	resp, err := h.service.Add(c.Request().Context(), req)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -193,318 +129,263 @@ func (h *MemoryHandler) Add(c echo.Context) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
-// Search godoc
-// @Summary Search memories
-// @Description Search memories for a user via memory. Auth: Bearer JWT determines user_id (sub or user_id).
-// @Tags memory
-// @Param payload body memorySearchPayload true "Search request"
-// @Success 200 {object} memory.SearchResponse
-// @Failure 400 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
-// @Router /bots/{bot_id}/memory/search [post]
-func (h *MemoryHandler) Search(c echo.Context) error {
+// ChatSearch searches memory across all enabled namespaces per chat_settings.
+func (h *MemoryHandler) ChatSearch(c echo.Context) error {
 	if err := h.checkService(); err != nil {
 		return err
 	}
-
-	userID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
-	botID := strings.TrimSpace(c.Param("bot_id"))
-	if botID == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
+	chatID := strings.TrimSpace(c.Param("chat_id"))
+	if chatID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "chat_id is required")
 	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+	if err := h.requireChatParticipant(c.Request().Context(), chatID, channelIdentityID); err != nil {
 		return err
-	}
-	sessionID := strings.TrimSpace(c.QueryParam("session_id"))
-	if sessionID == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "session_id is required")
 	}
 
 	var payload memorySearchPayload
 	if err := c.Bind(&payload); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	req := memory.SearchRequest{
-		Query:            payload.Query,
-		BotID:            botID,
-		SessionID:        sessionID,
-		RunID:            payload.RunID,
-		Limit:            payload.Limit,
-		Filters:          payload.Filters,
-		Sources:          payload.Sources,
-		EmbeddingEnabled: payload.EmbeddingEnabled,
-	}
 
-	resp, err := h.service.Search(c.Request().Context(), req)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	return c.JSON(http.StatusOK, resp)
-}
-
-// Update godoc
-// @Summary Update memory
-// @Description Update a memory by ID via memory. Auth: Bearer JWT determines user_id (sub or user_id).
-// @Tags memory
-// @Param payload body memory.UpdateRequest true "Update request"
-// @Success 200 {object} memory.MemoryItem
-// @Failure 400 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
-// @Router /bots/{bot_id}/memory/update [post]
-func (h *MemoryHandler) Update(c echo.Context) error {
-	if err := h.checkService(); err != nil {
-		return err
-	}
-
-	userID, err := h.requireUserID(c)
+	scopes, err := h.resolveEnabledScopes(c.Request().Context(), chatID, channelIdentityID)
 	if err != nil {
 		return err
 	}
-	botID := strings.TrimSpace(c.Param("bot_id"))
-	if botID == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
-	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
-		return err
-	}
 
-	var req memory.UpdateRequest
-	if err := c.Bind(&req); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-	if req.MemoryID != "" {
-		existing, err := h.service.Get(c.Request().Context(), req.MemoryID)
+	// Search across all enabled namespaces and merge results.
+	var allResults []memory.MemoryItem
+	for _, scope := range scopes {
+		filters := buildNamespaceFilters(scope.Namespace, scope.ScopeID, payload.Filters)
+		req := memory.SearchRequest{
+			Query:            payload.Query,
+			RunID:            payload.RunID,
+			Limit:            payload.Limit,
+			Filters:          filters,
+			Sources:          payload.Sources,
+			EmbeddingEnabled: payload.EmbeddingEnabled,
+		}
+		resp, err := h.service.Search(c.Request().Context(), req)
 		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+			h.logger.Warn("search namespace failed", slog.String("namespace", scope.Namespace), slog.Any("error", err))
+			continue
 		}
-		if existing.BotID != "" && existing.BotID != botID {
-			return echo.NewHTTPError(http.StatusForbidden, "bot mismatch")
-		}
+		allResults = append(allResults, resp.Results...)
 	}
 
-	resp, err := h.service.Update(c.Request().Context(), req)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	// Deduplicate by ID and sort by score descending.
+	allResults = deduplicateMemoryItems(allResults)
+	sort.Slice(allResults, func(i, j int) bool {
+		return allResults[i].Score > allResults[j].Score
+	})
+	if payload.Limit > 0 && len(allResults) > payload.Limit {
+		allResults = allResults[:payload.Limit]
 	}
-	return c.JSON(http.StatusOK, resp)
+
+	return c.JSON(http.StatusOK, memory.SearchResponse{Results: allResults})
 }
 
-// Get godoc
-// @Summary Get memory
-// @Description Get a memory by ID via memory. Auth: Bearer JWT determines user_id (sub or user_id).
-// @Tags memory
-// @Param memoryId path string true "Memory ID"
-// @Success 200 {object} memory.MemoryItem
-// @Failure 400 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
-// @Router /bots/{bot_id}/memory/memories/{memoryId} [get]
-func (h *MemoryHandler) Get(c echo.Context) error {
+// ChatGetAll lists all memories across enabled namespaces.
+func (h *MemoryHandler) ChatGetAll(c echo.Context) error {
 	if err := h.checkService(); err != nil {
 		return err
 	}
-
-	userID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
-	botID := strings.TrimSpace(c.Param("bot_id"))
-	if botID == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
+	chatID := strings.TrimSpace(c.Param("chat_id"))
+	if chatID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "chat_id is required")
 	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+	if err := h.requireChatParticipant(c.Request().Context(), chatID, channelIdentityID); err != nil {
 		return err
 	}
 
-	memoryID := c.Param("memoryId")
-	if memoryID == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "memory ID required")
+	scopes, err := h.resolveEnabledScopes(c.Request().Context(), chatID, channelIdentityID)
+	if err != nil {
+		return err
 	}
 
-	resp, err := h.service.Get(c.Request().Context(), memoryID)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	var allResults []memory.MemoryItem
+	for _, scope := range scopes {
+		req := memory.GetAllRequest{
+			Filters: buildNamespaceFilters(scope.Namespace, scope.ScopeID, nil),
+		}
+		resp, err := h.service.GetAll(c.Request().Context(), req)
+		if err != nil {
+			h.logger.Warn("getall namespace failed", slog.String("namespace", scope.Namespace), slog.Any("error", err))
+			continue
+		}
+		allResults = append(allResults, resp.Results...)
 	}
-	if resp.BotID != "" && resp.BotID != botID {
-		return echo.NewHTTPError(http.StatusForbidden, "bot mismatch")
-	}
-	return c.JSON(http.StatusOK, resp)
+	allResults = deduplicateMemoryItems(allResults)
+
+	return c.JSON(http.StatusOK, memory.SearchResponse{Results: allResults})
 }
 
-// GetAll godoc
-// @Summary List memories
-// @Description List memories for a user via memory. Auth: Bearer JWT determines user_id (sub or user_id).
-// @Tags memory
-// @Param run_id query string false "Run ID"
-// @Param limit query int false "Limit"
-// @Success 200 {object} memory.SearchResponse
-// @Failure 400 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
-// @Router /bots/{bot_id}/memory/memories [get]
-func (h *MemoryHandler) GetAll(c echo.Context) error {
+// ChatDeleteAll deletes all memories across enabled namespaces.
+func (h *MemoryHandler) ChatDeleteAll(c echo.Context) error {
 	if err := h.checkService(); err != nil {
 		return err
 	}
-
-	userID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return err
 	}
-	botID := strings.TrimSpace(c.Param("bot_id"))
-	if botID == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
+	chatID := strings.TrimSpace(c.Param("chat_id"))
+	if chatID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "chat_id is required")
 	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+	if err := h.requireChatParticipant(c.Request().Context(), chatID, channelIdentityID); err != nil {
 		return err
 	}
-	sessionID := strings.TrimSpace(c.QueryParam("session_id"))
-	if sessionID == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "session_id is required")
+
+	scopes, err := h.resolveEnabledScopes(c.Request().Context(), chatID, channelIdentityID)
+	if err != nil {
+		return err
 	}
 
-	req := memory.GetAllRequest{
-		BotID:     botID,
-		SessionID: sessionID,
-		AgentID:   c.QueryParam("agent_id"),
-		RunID:     c.QueryParam("run_id"),
-	}
-	if limit := c.QueryParam("limit"); limit != "" {
-		var parsed int
-		if _, err := fmt.Sscanf(limit, "%d", &parsed); err == nil {
-			req.Limit = parsed
+	for _, scope := range scopes {
+		req := memory.DeleteAllRequest{
+			Filters: buildNamespaceFilters(scope.Namespace, scope.ScopeID, nil),
+		}
+		if _, err := h.service.DeleteAll(c.Request().Context(), req); err != nil {
+			h.logger.Warn("deleteall namespace failed", slog.String("namespace", scope.Namespace), slog.Any("error", err))
 		}
 	}
-
-	resp, err := h.service.GetAll(c.Request().Context(), req)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	return c.JSON(http.StatusOK, resp)
+	return c.JSON(http.StatusOK, memory.DeleteResponse{Message: "Memory deleted successfully!"})
 }
 
-// Delete godoc
-// @Summary Delete memory
-// @Description Delete a memory by ID via memory. Auth: Bearer JWT determines user_id (sub or user_id).
-// @Tags memory
-// @Param memoryId path string true "Memory ID"
-// @Success 200 {object} memory.DeleteResponse
-// @Failure 400 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
-// @Router /bots/{bot_id}/memory/memories/{memoryId} [delete]
-func (h *MemoryHandler) Delete(c echo.Context) error {
-	if err := h.checkService(); err != nil {
-		return err
-	}
+// --- helpers ---
 
-	userID, err := h.requireUserID(c)
+// resolveEnabledScopes returns all namespace scopes enabled by chat_settings.
+func (h *MemoryHandler) resolveEnabledScopes(ctx context.Context, chatID, channelIdentityID string) ([]namespaceScope, error) {
+	if h.chatService == nil {
+		return nil, echo.NewHTTPError(http.StatusInternalServerError, "chat service not configured")
+	}
+	chatObj, err := h.chatService.Get(ctx, chatID)
 	if err != nil {
-		return err
+		return nil, echo.NewHTTPError(http.StatusNotFound, "chat not found")
 	}
-	botID := strings.TrimSpace(c.Param("bot_id"))
-	if botID == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
-	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
-		return err
-	}
-
-	memoryID := c.Param("memoryId")
-	if memoryID == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "memory ID required")
-	}
-
-	existing, err := h.service.Get(c.Request().Context(), memoryID)
+	settings, err := h.chatService.GetSettings(ctx, chatID)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	if existing.BotID != "" && existing.BotID != botID {
-		return echo.NewHTTPError(http.StatusForbidden, "bot mismatch")
+		return nil, echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	resp, err := h.service.Delete(c.Request().Context(), memoryID)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	var scopes []namespaceScope
+	if settings.EnableChatMemory {
+		scopes = append(scopes, namespaceScope{Namespace: "chat", ScopeID: chatID})
 	}
-	return c.JSON(http.StatusOK, resp)
+	if settings.EnablePrivateMemory && strings.TrimSpace(channelIdentityID) != "" {
+		scopes = append(scopes, namespaceScope{Namespace: "private", ScopeID: channelIdentityID})
+	}
+	if settings.EnablePublicMemory {
+		scopes = append(scopes, namespaceScope{Namespace: "public", ScopeID: chatObj.BotID})
+	}
+	if len(scopes) == 0 {
+		scopes = append(scopes, namespaceScope{Namespace: "chat", ScopeID: chatID})
+	}
+	return scopes, nil
 }
 
-// DeleteAll godoc
-// @Summary Delete memories
-// @Description Delete all memories for a user via memory. Auth: Bearer JWT determines user_id (sub or user_id).
-// @Tags memory
-// @Param payload body memoryDeleteAllPayload true "Delete all request"
-// @Success 200 {object} memory.DeleteResponse
-// @Failure 400 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
-// @Router /bots/{bot_id}/memory/memories [delete]
-func (h *MemoryHandler) DeleteAll(c echo.Context) error {
-	if err := h.checkService(); err != nil {
-		return err
+// resolveWriteScope validates namespace and returns (scopeId, botId).
+func (h *MemoryHandler) resolveWriteScope(ctx context.Context, chatID, channelIdentityID, namespace string) (string, string, error) {
+	if h.chatService == nil {
+		return "", "", echo.NewHTTPError(http.StatusInternalServerError, "chat service not configured")
 	}
-
-	userID, err := h.requireUserID(c)
+	chatObj, err := h.chatService.Get(ctx, chatID)
 	if err != nil {
-		return err
+		return "", "", echo.NewHTTPError(http.StatusNotFound, "chat not found")
 	}
-	botID := strings.TrimSpace(c.Param("bot_id"))
-	if botID == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
-	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
-		return err
-	}
-	sessionID := strings.TrimSpace(c.QueryParam("session_id"))
-	if sessionID == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "session_id is required")
+	settings, err := h.chatService.GetSettings(ctx, chatID)
+	if err != nil {
+		return "", "", echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	var payload memoryDeleteAllPayload
-	if err := c.Bind(&payload); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	switch namespace {
+	case "chat":
+		if !settings.EnableChatMemory {
+			return "", "", echo.NewHTTPError(http.StatusForbidden, "chat memory is disabled for this chat")
+		}
+		return chatID, chatObj.BotID, nil
+	case "private":
+		if !settings.EnablePrivateMemory {
+			return "", "", echo.NewHTTPError(http.StatusForbidden, "private memory is disabled for this chat")
+		}
+		if strings.TrimSpace(channelIdentityID) == "" {
+			return "", "", echo.NewHTTPError(http.StatusBadRequest, "channel_identity_id required for private namespace")
+		}
+		return channelIdentityID, chatObj.BotID, nil
+	case "public":
+		if !settings.EnablePublicMemory {
+			return "", "", echo.NewHTTPError(http.StatusForbidden, "public memory is disabled for this chat")
+		}
+		return chatObj.BotID, chatObj.BotID, nil
+	default:
+		return "", "", echo.NewHTTPError(http.StatusBadRequest, "invalid namespace: "+namespace)
 	}
-	req := memory.DeleteAllRequest{
-		BotID:     botID,
-		SessionID: sessionID,
-		RunID:     payload.RunID,
-	}
+}
 
-	resp, err := h.service.DeleteAll(c.Request().Context(), req)
+func buildNamespaceFilters(namespace, scopeID string, extra map[string]any) map[string]any {
+	filters := map[string]any{
+		"namespace": namespace,
+		"scopeId":   scopeID,
+	}
+	for k, v := range extra {
+		if k != "namespace" && k != "scopeId" {
+			filters[k] = v
+		}
+	}
+	return filters
+}
+
+func deduplicateMemoryItems(items []memory.MemoryItem) []memory.MemoryItem {
+	if len(items) == 0 {
+		return items
+	}
+	seen := make(map[string]struct{}, len(items))
+	result := make([]memory.MemoryItem, 0, len(items))
+	for _, item := range items {
+		if _, ok := seen[item.ID]; ok {
+			continue
+		}
+		seen[item.ID] = struct{}{}
+		result = append(result, item)
+	}
+	return result
+}
+
+func (h *MemoryHandler) requireChatParticipant(ctx context.Context, chatID, channelIdentityID string) error {
+	if h.chatService == nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "chat service not configured")
+	}
+	if h.accountService != nil {
+		isAdmin, _ := h.accountService.IsAdmin(ctx, channelIdentityID)
+		if isAdmin {
+			return nil
+		}
+	}
+	ok, err := h.chatService.IsParticipant(ctx, chatID, channelIdentityID)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	return c.JSON(http.StatusOK, resp)
+	if !ok {
+		return echo.NewHTTPError(http.StatusForbidden, "not a chat participant")
+	}
+	return nil
 }
 
-func (h *MemoryHandler) requireUserID(c echo.Context) (string, error) {
-	userID, err := auth.UserIDFromContext(c)
+func (h *MemoryHandler) requireChannelIdentityID(c echo.Context) (string, error) {
+	channelIdentityID, err := auth.ChannelIdentityIDFromContext(c)
 	if err != nil {
 		return "", err
 	}
-	if err := identity.ValidateUserID(userID); err != nil {
+	if err := identity.ValidateChannelIdentityID(channelIdentityID); err != nil {
 		return "", echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	return userID, nil
-}
-
-func (h *MemoryHandler) authorizeBotAccess(ctx context.Context, actorID, botID string) (bots.Bot, error) {
-	if h.botService == nil || h.userService == nil {
-		return bots.Bot{}, echo.NewHTTPError(http.StatusInternalServerError, "bot services not configured")
-	}
-	isAdmin, err := h.userService.IsAdmin(ctx, actorID)
-	if err != nil {
-		return bots.Bot{}, echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	bot, err := h.botService.AuthorizeAccess(ctx, actorID, botID, isAdmin, bots.AccessPolicy{AllowPublicMember: false})
-	if err != nil {
-		if errors.Is(err, bots.ErrBotNotFound) {
-			return bots.Bot{}, echo.NewHTTPError(http.StatusNotFound, "bot not found")
-		}
-		if errors.Is(err, bots.ErrBotAccessDenied) {
-			return bots.Bot{}, echo.NewHTTPError(http.StatusForbidden, "bot access denied")
-		}
-		return bots.Bot{}, echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	return bot, nil
+	return channelIdentityID, nil
 }

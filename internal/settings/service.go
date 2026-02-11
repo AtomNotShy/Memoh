@@ -19,6 +19,8 @@ type Service struct {
 	logger  *slog.Logger
 }
 
+var ErrPersonalBotGuestAccessUnsupported = errors.New("personal bots do not support guest access")
+
 func NewService(log *slog.Logger, queries *sqlc.Queries) *Service {
 	return &Service{
 		queries: queries,
@@ -26,6 +28,7 @@ func NewService(log *slog.Logger, queries *sqlc.Queries) *Service {
 	}
 }
 
+// Get returns user-level settings.
 func (s *Service) Get(ctx context.Context, userID string) (Settings, error) {
 	pgID, err := parseUUID(userID)
 	if err != nil {
@@ -47,6 +50,7 @@ func (s *Service) Get(ctx context.Context, userID string) (Settings, error) {
 	return normalizeUserSetting(row), nil
 }
 
+// Upsert creates or updates user-level settings.
 func (s *Service) Upsert(ctx context.Context, userID string, req UpsertRequest) (Settings, error) {
 	if s.queries == nil {
 		return Settings{}, fmt.Errorf("settings queries not configured")
@@ -88,7 +92,7 @@ func (s *Service) Upsert(ctx context.Context, userID string, req UpsertRequest) 
 	}
 
 	_, err = s.queries.UpsertUserSettings(ctx, sqlc.UpsertUserSettingsParams{
-		UserID:             pgID,
+		ID:                 pgID,
 		ChatModelID:        pgtype.Text{String: current.ChatModelID, Valid: current.ChatModelID != ""},
 		MemoryModelID:      pgtype.Text{String: current.MemoryModelID, Valid: current.MemoryModelID != ""},
 		EmbeddingModelID:   pgtype.Text{String: current.EmbeddingModelID, Valid: current.EmbeddingModelID != ""},
@@ -108,24 +112,9 @@ func (s *Service) GetBot(ctx context.Context, botID string) (Settings, error) {
 	}
 	row, err := s.queries.GetSettingsByBotID(ctx, pgID)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			settings := Settings{
-				MaxContextLoadTime: DefaultMaxContextLoadTime,
-				Language:           DefaultLanguage,
-				AllowGuest:         false,
-			}
-			if err := s.attachBotModelConfig(ctx, pgID, &settings); err != nil {
-				return Settings{}, err
-			}
-			return settings, nil
-		}
 		return Settings{}, err
 	}
-	settings := normalizeBotSetting(row)
-	if err := s.attachBotModelConfig(ctx, pgID, &settings); err != nil {
-		return Settings{}, err
-	}
-	return settings, nil
+	return normalizeBotSettingsReadRow(row), nil
 }
 
 func (s *Service) UpsertBot(ctx context.Context, botID string, req UpsertRequest) (Settings, error) {
@@ -136,45 +125,66 @@ func (s *Service) UpsertBot(ctx context.Context, botID string, req UpsertRequest
 	if err != nil {
 		return Settings{}, err
 	}
-
-	current := Settings{
-		MaxContextLoadTime: DefaultMaxContextLoadTime,
-		Language:           DefaultLanguage,
-		AllowGuest:         false,
-	}
-	existing, err := s.queries.GetSettingsByBotID(ctx, pgID)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	botRow, err := s.queries.GetBotByID(ctx, pgID)
+	if err != nil {
 		return Settings{}, err
 	}
-	if err == nil {
-		current = normalizeBotSetting(existing)
-	}
+	isPersonalBot := strings.EqualFold(strings.TrimSpace(botRow.Type), "personal")
+
+	current := normalizeBotSetting(botRow.MaxContextLoadTime, botRow.Language, botRow.AllowGuest)
 	if req.MaxContextLoadTime != nil && *req.MaxContextLoadTime > 0 {
 		current.MaxContextLoadTime = *req.MaxContextLoadTime
 	}
 	if strings.TrimSpace(req.Language) != "" {
 		current.Language = strings.TrimSpace(req.Language)
 	}
-	if req.AllowGuest != nil {
+	if isPersonalBot {
+		if req.AllowGuest != nil && *req.AllowGuest {
+			return Settings{}, ErrPersonalBotGuestAccessUnsupported
+		}
+		current.AllowGuest = false
+	} else if req.AllowGuest != nil {
 		current.AllowGuest = *req.AllowGuest
 	}
 
-	_, err = s.queries.UpsertBotSettings(ctx, sqlc.UpsertBotSettingsParams{
-		BotID:              pgID,
+	chatModelUUID := pgtype.UUID{}
+	if value := strings.TrimSpace(req.ChatModelID); value != "" {
+		modelID, err := s.resolveModelUUID(ctx, value)
+		if err != nil {
+			return Settings{}, err
+		}
+		chatModelUUID = modelID
+	}
+	memoryModelUUID := pgtype.UUID{}
+	if value := strings.TrimSpace(req.MemoryModelID); value != "" {
+		modelID, err := s.resolveModelUUID(ctx, value)
+		if err != nil {
+			return Settings{}, err
+		}
+		memoryModelUUID = modelID
+	}
+	embeddingModelUUID := pgtype.UUID{}
+	if value := strings.TrimSpace(req.EmbeddingModelID); value != "" {
+		modelID, err := s.resolveModelUUID(ctx, value)
+		if err != nil {
+			return Settings{}, err
+		}
+		embeddingModelUUID = modelID
+	}
+
+	updated, err := s.queries.UpsertBotSettings(ctx, sqlc.UpsertBotSettingsParams{
+		ID:                 pgID,
 		MaxContextLoadTime: int32(current.MaxContextLoadTime),
 		Language:           current.Language,
 		AllowGuest:         current.AllowGuest,
+		ChatModelID:        chatModelUUID,
+		MemoryModelID:      memoryModelUUID,
+		EmbeddingModelID:   embeddingModelUUID,
 	})
 	if err != nil {
 		return Settings{}, err
 	}
-	if err := s.upsertBotModelConfig(ctx, pgID, req); err != nil {
-		return Settings{}, err
-	}
-	if err := s.attachBotModelConfig(ctx, pgID, &current); err != nil {
-		return Settings{}, err
-	}
-	return current, nil
+	return normalizeBotSettingsWriteRow(updated), nil
 }
 
 func (s *Service) Delete(ctx context.Context, botID string) error {
@@ -188,7 +198,7 @@ func (s *Service) Delete(ctx context.Context, botID string) error {
 	return s.queries.DeleteSettingsByBotID(ctx, pgID)
 }
 
-func normalizeUserSetting(row sqlc.UserSetting) Settings {
+func normalizeUserSetting(row sqlc.GetSettingsByUserIDRow) Settings {
 	settings := Settings{
 		ChatModelID:        strings.TrimSpace(row.ChatModelID.String),
 		MemoryModelID:      strings.TrimSpace(row.MemoryModelID.String),
@@ -205,11 +215,11 @@ func normalizeUserSetting(row sqlc.UserSetting) Settings {
 	return settings
 }
 
-func normalizeBotSetting(row sqlc.BotSetting) Settings {
+func normalizeBotSetting(maxContextLoadTime int32, language string, allowGuest bool) Settings {
 	settings := Settings{
-		MaxContextLoadTime: int(row.MaxContextLoadTime),
-		Language:           strings.TrimSpace(row.Language),
-		AllowGuest:         row.AllowGuest,
+		MaxContextLoadTime: int(maxContextLoadTime),
+		Language:           strings.TrimSpace(language),
+		AllowGuest:         allowGuest,
 	}
 	if settings.MaxContextLoadTime <= 0 {
 		settings.MaxContextLoadTime = DefaultMaxContextLoadTime
@@ -220,60 +230,41 @@ func normalizeBotSetting(row sqlc.BotSetting) Settings {
 	return settings
 }
 
-func (s *Service) attachBotModelConfig(ctx context.Context, botID pgtype.UUID, target *Settings) error {
-	if s.queries == nil || target == nil {
-		return nil
-	}
-	row, err := s.queries.GetBotModelConfigByBotID(ctx, botID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
-		return err
-	}
-	target.ChatModelID = strings.TrimSpace(row.ChatModelID.String)
-	target.MemoryModelID = strings.TrimSpace(row.MemoryModelID.String)
-	target.EmbeddingModelID = strings.TrimSpace(row.EmbeddingModelID.String)
-	return nil
+func normalizeBotSettingsReadRow(row sqlc.GetSettingsByBotIDRow) Settings {
+	return normalizeBotSettingsFields(
+		row.MaxContextLoadTime,
+		row.Language,
+		row.AllowGuest,
+		row.ChatModelID,
+		row.MemoryModelID,
+		row.EmbeddingModelID,
+	)
 }
 
-func (s *Service) upsertBotModelConfig(ctx context.Context, botID pgtype.UUID, req UpsertRequest) error {
-	if s.queries == nil {
-		return fmt.Errorf("settings queries not configured")
-	}
-	params := sqlc.UpsertBotModelConfigParams{
-		BotID: botID,
-	}
-	hasUpdate := false
-	if value := strings.TrimSpace(req.ChatModelID); value != "" {
-		modelID, err := s.resolveModelUUID(ctx, value)
-		if err != nil {
-			return err
-		}
-		params.ChatModelID = modelID
-		hasUpdate = true
-	}
-	if value := strings.TrimSpace(req.MemoryModelID); value != "" {
-		modelID, err := s.resolveModelUUID(ctx, value)
-		if err != nil {
-			return err
-		}
-		params.MemoryModelID = modelID
-		hasUpdate = true
-	}
-	if value := strings.TrimSpace(req.EmbeddingModelID); value != "" {
-		modelID, err := s.resolveModelUUID(ctx, value)
-		if err != nil {
-			return err
-		}
-		params.EmbeddingModelID = modelID
-		hasUpdate = true
-	}
-	if !hasUpdate {
-		return nil
-	}
-	_, err := s.queries.UpsertBotModelConfig(ctx, params)
-	return err
+func normalizeBotSettingsWriteRow(row sqlc.UpsertBotSettingsRow) Settings {
+	return normalizeBotSettingsFields(
+		row.MaxContextLoadTime,
+		row.Language,
+		row.AllowGuest,
+		row.ChatModelID,
+		row.MemoryModelID,
+		row.EmbeddingModelID,
+	)
+}
+
+func normalizeBotSettingsFields(
+	maxContextLoadTime int32,
+	language string,
+	allowGuest bool,
+	chatModelID pgtype.Text,
+	memoryModelID pgtype.Text,
+	embeddingModelID pgtype.Text,
+) Settings {
+	settings := normalizeBotSetting(maxContextLoadTime, language, allowGuest)
+	settings.ChatModelID = strings.TrimSpace(chatModelID.String)
+	settings.MemoryModelID = strings.TrimSpace(memoryModelID.String)
+	settings.EmbeddingModelID = strings.TrimSpace(embeddingModelID.String)
+	return settings
 }
 
 func (s *Service) resolveModelUUID(ctx context.Context, modelID string) (pgtype.UUID, error) {

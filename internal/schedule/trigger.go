@@ -11,6 +11,7 @@ type TriggerPayload struct {
 	MaxCalls    *int
 	Command     string
 	OwnerUserID string
+	ChatID      string
 }
 
 // Triggerer 负责触发与聊天相关的调度执行。

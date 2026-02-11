@@ -1,6 +1,6 @@
 <template>
   <div class="flex gap-6 min-h-[400px]">
-    <!-- Left: Channel list -->
+    <!-- Left: Platform list -->
     <div class="w-60 shrink-0 flex flex-col border rounded-lg">
       <div class="flex-1 overflow-y-auto">
         <!-- Loading -->
@@ -27,7 +27,7 @@
           </p>
         </div>
 
-        <!-- Configured channels -->
+        <!-- Configured platforms -->
         <div
           v-else
           class="p-1"
@@ -51,7 +51,7 @@
               </div>
               <div class="text-xs">
                 <span
-                  v-if="item.config?.status === 'active'"
+                  v-if="item.config?.status === 'verified' || item.config?.status === 'active'"
                   class="text-green-600 dark:text-green-400"
                 >
                   {{ $t('bots.channels.statusActive') }}
@@ -114,7 +114,7 @@
       </div>
     </div>
 
-    <!-- Right: Channel settings -->
+    <!-- Right: Platform settings -->
     <div class="flex-1 min-w-0">
       <div
         v-if="!selectedType || !selectedItem"
@@ -163,7 +163,7 @@ const selectedItem = computed(() =>
   allChannels.value.find((c) => c.meta.type === selectedType.value) ?? null,
 )
 
-// 自动选中第一个已配置的渠道
+// 自动选中第一个已配置的平台
 watch(configuredChannels, (list) => {
   if (list.length > 0 && !selectedType.value) {
     selectedType.value = list[0].meta.type

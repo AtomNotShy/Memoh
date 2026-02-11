@@ -281,5 +281,5 @@ func (m *Manager) imageRef() string {
 }
 
 func validateBotID(botID string) error {
-	return identity.ValidateUserID(botID)
+	return identity.ValidateChannelIdentityID(botID)
 }

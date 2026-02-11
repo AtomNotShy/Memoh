@@ -22,6 +22,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/opencontainers/runtime-spec/specs-go"
 
+	"github.com/memohai/memoh/internal/accounts"
 	"github.com/memohai/memoh/internal/auth"
 	"github.com/memohai/memoh/internal/bots"
 	"github.com/memohai/memoh/internal/config"
@@ -29,21 +30,20 @@ import (
 	dbsqlc "github.com/memohai/memoh/internal/db/sqlc"
 	"github.com/memohai/memoh/internal/identity"
 	"github.com/memohai/memoh/internal/mcp"
-	"github.com/memohai/memoh/internal/users"
 )
 
 type ContainerdHandler struct {
-	service      ctr.Service
-	cfg          config.MCPConfig
-	namespace    string
-	logger       *slog.Logger
-	mcpMu        sync.Mutex
-	mcpSess      map[string]*mcpSession
-	mcpStdioMu   sync.Mutex
-	mcpStdioSess map[string]*mcpStdioSession
-	botService   *bots.Service
-	userService  *users.Service
-	queries      *dbsqlc.Queries
+	service        ctr.Service
+	cfg            config.MCPConfig
+	namespace      string
+	logger         *slog.Logger
+	mcpMu          sync.Mutex
+	mcpSess        map[string]*mcpSession
+	mcpStdioMu     sync.Mutex
+	mcpStdioSess   map[string]*mcpStdioSession
+	botService     *bots.Service
+	accountService *accounts.Service
+	queries        *dbsqlc.Queries
 }
 
 type CreateContainerRequest struct {
@@ -95,17 +95,17 @@ type ListSnapshotsResponse struct {
 	Snapshots   []SnapshotInfo `json:"snapshots"`
 }
 
-func NewContainerdHandler(log *slog.Logger, service ctr.Service, cfg config.MCPConfig, namespace string, botService *bots.Service, userService *users.Service, queries *dbsqlc.Queries) *ContainerdHandler {
+func NewContainerdHandler(log *slog.Logger, service ctr.Service, cfg config.MCPConfig, namespace string, botService *bots.Service, accountService *accounts.Service, queries *dbsqlc.Queries) *ContainerdHandler {
 	return &ContainerdHandler{
-		service:      service,
-		cfg:          cfg,
-		namespace:    namespace,
-		logger:       log.With(slog.String("handler", "containerd")),
-		mcpSess:      make(map[string]*mcpSession),
-		mcpStdioSess: make(map[string]*mcpStdioSession),
-		botService:   botService,
-		userService:  userService,
-		queries:      queries,
+		service:        service,
+		cfg:            cfg,
+		namespace:      namespace,
+		logger:         log.With(slog.String("handler", "containerd")),
+		mcpSess:        make(map[string]*mcpSession),
+		mcpStdioSess:   make(map[string]*mcpStdioSession),
+		botService:     botService,
+		accountService: accountService,
+		queries:        queries,
 	}
 }
 
@@ -612,7 +612,7 @@ func (h *ContainerdHandler) ListSnapshots(c echo.Context) error {
 
 // requireBotAccess extracts bot_id from path, validates user auth, and authorizes bot access.
 func (h *ContainerdHandler) requireBotAccess(c echo.Context) (string, error) {
-	userID, err := h.requireUserID(c)
+	channelIdentityID, err := h.requireChannelIdentityID(c)
 	if err != nil {
 		return "", err
 	}
@@ -620,32 +620,32 @@ func (h *ContainerdHandler) requireBotAccess(c echo.Context) (string, error) {
 	if botID == "" {
 		return "", echo.NewHTTPError(http.StatusBadRequest, "bot id is required")
 	}
-	if _, err := h.authorizeBotAccess(c.Request().Context(), userID, botID); err != nil {
+	if _, err := h.authorizeBotAccess(c.Request().Context(), channelIdentityID, botID); err != nil {
 		return "", err
 	}
 	return botID, nil
 }
 
-func (h *ContainerdHandler) requireUserID(c echo.Context) (string, error) {
-	userID, err := auth.UserIDFromContext(c)
+func (h *ContainerdHandler) requireChannelIdentityID(c echo.Context) (string, error) {
+	channelIdentityID, err := auth.ChannelIdentityIDFromContext(c)
 	if err != nil {
 		return "", err
 	}
-	if err := identity.ValidateUserID(userID); err != nil {
+	if err := identity.ValidateChannelIdentityID(channelIdentityID); err != nil {
 		return "", echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	return userID, nil
+	return channelIdentityID, nil
 }
 
-func (h *ContainerdHandler) authorizeBotAccess(ctx context.Context, actorID, botID string) (bots.Bot, error) {
-	if h.botService == nil || h.userService == nil {
+func (h *ContainerdHandler) authorizeBotAccess(ctx context.Context, channelIdentityID, botID string) (bots.Bot, error) {
+	if h.botService == nil || h.accountService == nil {
 		return bots.Bot{}, echo.NewHTTPError(http.StatusInternalServerError, "bot services not configured")
 	}
-	isAdmin, err := h.userService.IsAdmin(ctx, actorID)
+	isAdmin, err := h.accountService.IsAdmin(ctx, channelIdentityID)
 	if err != nil {
 		return bots.Bot{}, echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	bot, err := h.botService.AuthorizeAccess(ctx, actorID, botID, isAdmin, bots.AccessPolicy{AllowPublicMember: false})
+	bot, err := h.botService.AuthorizeAccess(ctx, channelIdentityID, botID, isAdmin, bots.AccessPolicy{AllowPublicMember: false})
 	if err != nil {
 		if errors.Is(err, bots.ErrBotNotFound) {
 			return bots.Bot{}, echo.NewHTTPError(http.StatusNotFound, "bot not found")
@@ -780,8 +780,13 @@ func (h *ContainerdHandler) SetupBotContainer(ctx context.Context, botID string)
 
 // CleanupBotContainer removes the containerd container and DB record for a bot.
 func (h *ContainerdHandler) CleanupBotContainer(ctx context.Context, botID string) error {
+	h.logger.Info("CleanupBotContainer starting", slog.String("bot_id", botID))
 	containerID, err := h.botContainerID(ctx, botID)
 	if err != nil {
+		h.logger.Warn("CleanupBotContainer: container not found for bot, cleaning up DB only",
+			slog.String("bot_id", botID),
+			slog.Any("error", err),
+		)
 		if h.queries != nil {
 			if pgBotID, parseErr := parsePgUUID(botID); parseErr == nil {
 				_ = h.queries.DeleteContainerByBotID(ctx, pgBotID)
@@ -790,26 +795,41 @@ func (h *ContainerdHandler) CleanupBotContainer(ctx context.Context, botID strin
 		return nil
 	}
 
+	h.logger.Info("CleanupBotContainer: found container",
+		slog.String("bot_id", botID),
+		slog.String("container_id", containerID),
+	)
+
 	if task, taskErr := h.service.GetTask(ctx, containerID); taskErr == nil {
+		h.logger.Info("CleanupBotContainer: removing network", slog.String("container_id", containerID))
 		_ = ctr.RemoveNetwork(ctx, task, containerID)
 	}
+	h.logger.Info("CleanupBotContainer: stopping task", slog.String("container_id", containerID))
 	_ = h.service.StopTask(ctx, containerID, &ctr.StopTaskOptions{
 		Timeout: 5 * time.Second,
 		Force:   true,
 	})
+	h.logger.Info("CleanupBotContainer: deleting task", slog.String("container_id", containerID))
 	_ = h.service.DeleteTask(ctx, containerID, &ctr.DeleteTaskOptions{Force: true})
 
+	h.logger.Info("CleanupBotContainer: deleting container", slog.String("container_id", containerID))
 	if err := h.service.DeleteContainer(ctx, containerID, &ctr.DeleteContainerOptions{
 		CleanupSnapshot: true,
 	}); err != nil && !errdefs.IsNotFound(err) {
+		h.logger.Error("CleanupBotContainer: failed to delete container",
+			slog.String("container_id", containerID),
+			slog.Any("error", err),
+		)
 		return err
 	}
 
 	if h.queries != nil {
+		h.logger.Info("CleanupBotContainer: deleting container record from DB", slog.String("bot_id", botID))
 		if pgBotID, parseErr := parsePgUUID(botID); parseErr == nil {
 			_ = h.queries.DeleteContainerByBotID(ctx, pgBotID)
 		}
 	}
+	h.logger.Info("CleanupBotContainer finished", slog.String("bot_id", botID))
 	return nil
 }
 

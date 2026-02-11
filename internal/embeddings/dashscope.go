@@ -33,7 +33,7 @@ type DashScopeUsage struct {
 }
 
 type dashScopeRequest struct {
-	Model string               `json:"model"`
+	Model string                `json:"model"`
 	Input dashScopeRequestInput `json:"input"`
 }
 

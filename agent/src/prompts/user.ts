@@ -1,8 +1,8 @@
 import { ContainerFileAttachment } from '../types'
 
 export interface UserParams {
-  contactId: string
-  contactName: string
+  channelIdentityId: string
+  displayName: string
   channel: string
   date: Date
   attachments: ContainerFileAttachment[]
@@ -10,11 +10,11 @@ export interface UserParams {
 
 export const user = (
   query: string,
-  { contactId, contactName, channel, date, attachments }: UserParams
+  { channelIdentityId, displayName, channel, date, attachments }: UserParams
 ) => {
   const headers = {
-    'contact-id': contactId,
-    'contact-name': contactName,
+    'channel-identity-id': channelIdentityId,
+    'display-name': displayName,
     'channel': channel,
     'time': date.toISOString(),
     'attachments': attachments.map(attachment => attachment.path),

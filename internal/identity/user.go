@@ -6,14 +6,14 @@ import (
 	ctr "github.com/memohai/memoh/internal/containerd"
 )
 
-// ValidateUserID enforces a conservative ID charset for isolation.
-func ValidateUserID(userID string) error {
-	if userID == "" {
-		return fmt.Errorf("%w: user id required", ctr.ErrInvalidArgument)
+// ValidateChannelIdentityID enforces a conservative ID charset for isolation.
+func ValidateChannelIdentityID(channelIdentityID string) error {
+	if channelIdentityID == "" {
+		return fmt.Errorf("%w: channel identity id required", ctr.ErrInvalidArgument)
 	}
-	for _, r := range userID {
+	for _, r := range channelIdentityID {
 		if !(r == '-' || r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')) {
-			return fmt.Errorf("%w: invalid user id", ctr.ErrInvalidArgument)
+			return fmt.Errorf("%w: invalid channel identity id", ctr.ErrInvalidArgument)
 		}
 	}
 	return nil

@@ -31,14 +31,46 @@
     "models": "Models",
     "settings": "Settings",
     "home": "Home",
-    "platform": "Platform",
     "mcp": "MCP"
   },
   "breadcrumb": {
     "main": "Home"
   },
   "settings": {
-    "display": "Display Settings",
+    "display": "General",
+    "user": "User",
+    "backToChat": "Back to Chat",
+    "userProfile": "Profile",
+    "userID": "User ID",
+    "displayName": "Display Name",
+    "avatarUrl": "Avatar URL",
+    "saveProfile": "Save Profile",
+    "profileUpdated": "Profile updated",
+    "profileUpdateFailed": "Failed to update profile",
+    "changePassword": "Change Password",
+    "currentPassword": "Current Password",
+    "newPassword": "New Password",
+    "confirmPassword": "Confirm New Password",
+    "updatePassword": "Update Password",
+    "passwordRequired": "Current password and new password are required",
+    "passwordNotMatch": "The new passwords do not match",
+    "passwordUpdated": "Password updated",
+    "passwordUpdateFailed": "Failed to update password",
+    "linkedChannels": "Linked Platform Accounts",
+    "noLinkedChannels": "No linked platform accounts yet",
+    "bindCode": "Bind Code",
+    "platform": "Platform",
+    "platformAny": "Any platform",
+    "bindCodeTTL": "TTL (seconds)",
+    "generateBindCode": "Generate Bind Code",
+    "bindCodeGenerated": "Bind Code generated",
+    "bindCodeGenerateFailed": "Failed to generate bind code",
+    "bindCodeValue": "Bind Code",
+    "bindCodeExpiresAt": "Expires At",
+    "copyBindCode": "Copy",
+    "bindCodeCopied": "Bind code copied",
+    "bindCodeCopyFailed": "Failed to copy bind code",
+    "loadUserFailed": "Failed to load user data",
     "language": "Language",
     "languagePlaceholder": "Select language",
     "theme": "Theme",
@@ -50,15 +82,17 @@
   },
   "chat": {
     "greeting": "Hi! How can I help you today?",
-    "inputPlaceholder": "Type your question… (Enter to send)",
+    "currentBot": "Current Bot",
+    "inputPlaceholder": "Type your question…",
+    "readonlyPlaceholder": "This chat is read-only. Sending messages is disabled.",
     "send": "Send",
-    "selectBot": "Select a Bot to start chatting",
-    "selectBotHint": "Choose from the list on the left",
-    "thinking": "Thinking…",
-    "thinkingInProgress": "Thinking…",
-    "thinkingDone": "Thought process",
-    "toolRunning": "Running",
-    "toolDone": "Done"
+    "startChat": "Start Chat",
+    "noBot": "No bots available, please create a bot first",
+    "newChat": "New Chat",
+    "history": "History",
+    "historyParticipant": "Chats",
+    "historyObserved": "Observed Chats",
+    "readonly": "Read-only"
   },
   "models": {
     "title": "Models",
@@ -109,19 +143,18 @@
     "cwdPlaceholder": "Enter working directory path",
     "env": "Environment",
     "envPlaceholder": "Format: KEY:VALUE",
-    "active": "Enable Now"
-  },
-  "platform": {
-    "addTitle": "Add Platform",
-    "addDescription": "Configure a platform for model access",
-    "name": "Name",
-    "namePlaceholder": "Enter platform name",
-    "config": "Config",
-    "configPlaceholder": "Format: key:value",
     "active": "Enable Now",
-    "running": "Running",
-    "platformLabel": "Platform",
-    "deleteConfirm": "Are you sure you want to delete this platform?"
+    "types": {
+      "stdio": "Stdio"
+    },
+    "table": {
+      "name": "Name",
+      "type": "Type",
+      "command": "Command",
+      "cwd": "Working Directory",
+      "arguments": "Arguments",
+      "env": "Environment"
+    }
   },
   "home": {
     "title": "Home"
@@ -146,7 +179,7 @@
     "tabs": {
       "overview": "Overview",
       "memory": "Memory",
-      "channels": "Channels",
+      "channels": "Platforms",
       "mcp": "MCP",
       "subagents": "Subagents",
       "history": "History",
@@ -159,29 +192,30 @@
       "maxContextLoadTime": "Max Context Load Time",
       "language": "Language",
       "allowGuest": "Allow Guest Access",
+      "allowGuestPersonalHint": "Personal bots do not support guest access. Use a public bot instead.",
       "searchModel": "Search models…",
       "noModel": "No models available",
       "saveSuccess": "Settings saved",
       "save": "Save Settings"
     },
     "channels": {
-      "title": "Channels",
-      "addChannel": "Add Channel",
-      "selectType": "Select channel type",
+      "title": "Platforms",
+      "addChannel": "Add Platform",
+      "selectType": "Select platform type",
       "configured": "Configured",
       "notConfigured": "Not configured",
-      "emptyTitle": "No Channels",
-      "emptyDescription": "Click the button below to add a messaging channel",
+      "emptyTitle": "No Platforms",
+      "emptyDescription": "Click below to add an access platform for this bot",
       "credentials": "Credentials",
-      "saveSuccess": "Channel configuration saved",
-      "saveFailed": "Failed to save",
+      "saveSuccess": "Platform configuration saved",
+      "saveFailed": "Failed to save platform configuration",
       "requiredField": "{field} is required",
-      "save": "Save Configuration",
+      "save": "Save Platform Configuration",
       "status": "Status",
       "statusActive": "Active",
       "statusInactive": "Inactive",
-      "deleteConfirm": "Are you sure you want to remove this channel?",
-      "noAvailableTypes": "All channel types have been configured"
+      "deleteConfirm": "Are you sure you want to remove this platform?",
+      "noAvailableTypes": "All platform types have been configured"
     }
   }
 }

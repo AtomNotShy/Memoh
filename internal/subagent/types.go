@@ -3,30 +3,30 @@ package subagent
 import "time"
 
 type Subagent struct {
-	ID          string                   `json:"id"`
-	Name        string                   `json:"name"`
-	Description string                   `json:"description"`
-	BotID       string                   `json:"bot_id"`
+	ID          string           `json:"id"`
+	Name        string           `json:"name"`
+	Description string           `json:"description"`
+	BotID       string           `json:"bot_id"`
 	Messages    []map[string]any `json:"messages"`
 	Metadata    map[string]any   `json:"metadata"`
-	Skills      []string                 `json:"skills"`
-	CreatedAt   time.Time                `json:"created_at"`
-	UpdatedAt   time.Time                `json:"updated_at"`
-	Deleted     bool                     `json:"deleted"`
-	DeletedAt   *time.Time               `json:"deleted_at,omitempty"`
+	Skills      []string         `json:"skills"`
+	CreatedAt   time.Time        `json:"created_at"`
+	UpdatedAt   time.Time        `json:"updated_at"`
+	Deleted     bool             `json:"deleted"`
+	DeletedAt   *time.Time       `json:"deleted_at,omitempty"`
 }
 
 type CreateRequest struct {
-	Name        string                   `json:"name"`
-	Description string                   `json:"description"`
+	Name        string           `json:"name"`
+	Description string           `json:"description"`
 	Messages    []map[string]any `json:"messages,omitempty"`
 	Metadata    map[string]any   `json:"metadata,omitempty"`
-	Skills      []string                 `json:"skills,omitempty"`
+	Skills      []string         `json:"skills,omitempty"`
 }
 
 type UpdateRequest struct {
-	Name        *string                `json:"name,omitempty"`
-	Description *string                `json:"description,omitempty"`
+	Name        *string        `json:"name,omitempty"`
+	Description *string        `json:"description,omitempty"`
 	Metadata    map[string]any `json:"metadata,omitempty"`
 }
 

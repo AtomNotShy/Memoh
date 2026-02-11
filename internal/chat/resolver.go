@@ -9,13 +9,13 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/memohai/memoh/internal/db/sqlc"
-	"github.com/memohai/memoh/internal/history"
 	"github.com/memohai/memoh/internal/mcp"
 	"github.com/memohai/memoh/internal/memory"
 	"github.com/memohai/memoh/internal/models"
@@ -23,7 +23,12 @@ import (
 	"github.com/memohai/memoh/internal/settings"
 )
 
-const defaultMaxContextMinutes = 24 * 60
+const (
+	defaultMaxContextMinutes   = 24 * 60
+	memoryContextLimitPerScope = 4
+	memoryContextMaxItems      = 8
+	memoryContextItemMaxChars  = 220
+)
 
 // SkillEntry represents a skill loaded from the container.
 type SkillEntry struct {
@@ -43,7 +48,7 @@ type Resolver struct {
 	modelsService   *models.Service
 	queries         *sqlc.Queries
 	memoryService   *memory.Service
-	historyService  *history.Service
+	chatService     *Service
 	settingsService *settings.Service
 	mcpService      *mcp.ConnectionService
 	skillLoader     SkillLoader
@@ -60,7 +65,7 @@ func NewResolver(
 	modelsService *models.Service,
 	queries *sqlc.Queries,
 	memoryService *memory.Service,
-	historyService *history.Service,
+	chatService *Service,
 	settingsService *settings.Service,
 	mcpService *mcp.ConnectionService,
 	gatewayBaseURL string,
@@ -77,12 +82,12 @@ func NewResolver(
 		modelsService:   modelsService,
 		queries:         queries,
 		memoryService:   memoryService,
-		historyService:  historyService,
+		chatService:     chatService,
 		settingsService: settingsService,
 		mcpService:      mcpService,
 		gatewayBaseURL:  gatewayBaseURL,
 		timeout:         timeout,
-		logger:          log.With(slog.String("service", "chat")),
+		logger:          log.With(slog.String("service", "chat_resolver")),
 		httpClient:      &http.Client{Timeout: timeout},
 		streamingClient: &http.Client{},
 	}
@@ -104,16 +109,14 @@ type gatewayModelConfig struct {
 }
 
 type gatewayIdentity struct {
-	BotID           string `json:"botId"`
-	SessionID       string `json:"sessionId"`
-	ContainerID     string `json:"containerId"`
-	ContactID       string `json:"contactId"`
-	ContactName     string `json:"contactName"`
-	ContactAlias    string `json:"contactAlias,omitempty"`
-	UserID          string `json:"userId,omitempty"`
-	CurrentPlatform string `json:"currentPlatform,omitempty"`
-	ReplyTarget     string `json:"replyTarget,omitempty"`
-	SessionToken    string `json:"sessionToken,omitempty"`
+	BotID             string `json:"botId"`
+	SessionID         string `json:"sessionId"`
+	ContainerID       string `json:"containerId"`
+	ChannelIdentityID string `json:"channelIdentityId"`
+	DisplayName       string `json:"displayName"`
+	CurrentPlatform   string `json:"currentPlatform,omitempty"`
+	ReplyTarget       string `json:"replyTarget,omitempty"`
+	SessionToken      string `json:"sessionToken,omitempty"`
 }
 
 type gatewaySkill struct {
@@ -184,8 +187,8 @@ func (r *Resolver) resolve(ctx context.Context, req ChatRequest) (resolvedContex
 	if strings.TrimSpace(req.BotID) == "" {
 		return resolvedContext{}, fmt.Errorf("bot id is required")
 	}
-	if strings.TrimSpace(req.SessionID) == "" {
-		return resolvedContext{}, fmt.Errorf("session id is required")
+	if strings.TrimSpace(req.ChatID) == "" {
+		return resolvedContext{}, fmt.Errorf("chat id is required")
 	}
 
 	skipHistory := req.MaxContextLoadTime < 0
@@ -194,11 +197,22 @@ func (r *Resolver) resolve(ctx context.Context, req ChatRequest) (resolvedContex
 	if err != nil {
 		return resolvedContext{}, err
 	}
-	userSettings, err := r.loadUserSettings(ctx, req.UserID)
+
+	// Check chat-level model override.
+	var chatSettings Settings
+	if r.chatService != nil {
+		chatSettings, err = r.chatService.GetSettings(ctx, req.ChatID)
+		if err != nil {
+			return resolvedContext{}, err
+		}
+		r.enforceGroupMemoryPolicy(ctx, req.ChatID, &chatSettings)
+	}
+
+	userSettings, err := r.loadUserSettings(ctx, req.ChannelIdentityID)
 	if err != nil {
 		return resolvedContext{}, err
 	}
-	chatModel, provider, err := r.selectChatModel(ctx, req, botSettings, userSettings)
+	chatModel, provider, err := r.selectChatModel(ctx, req, botSettings, userSettings, chatSettings)
 	if err != nil {
 		return resolvedContext{}, err
 	}
@@ -209,20 +223,18 @@ func (r *Resolver) resolve(ctx context.Context, req ChatRequest) (resolvedContex
 	maxCtx := coalescePositiveInt(req.MaxContextLoadTime, botSettings.MaxContextLoadTime, defaultMaxContextMinutes)
 
 	var messages []ModelMessage
-	var historySkills []string
-	if !skipHistory {
-		messages, err = r.loadHistoryMessages(ctx, req.BotID, req.SessionID, maxCtx)
-		if err != nil {
-			return resolvedContext{}, err
-		}
-		historySkills, err = r.loadHistorySkills(ctx, req.BotID, req.SessionID, maxCtx)
+	if !skipHistory && r.chatService != nil {
+		messages, err = r.loadChatMessages(ctx, req.ChatID, maxCtx)
 		if err != nil {
 			return resolvedContext{}, err
 		}
 	}
+	if memoryMsg := r.loadMemoryContextMessage(ctx, req, chatSettings); memoryMsg != nil {
+		messages = append(messages, *memoryMsg)
+	}
 	messages = append(messages, req.Messages...)
 	messages = sanitizeMessages(messages)
-	skills := dedup(append(historySkills, req.Skills...))
+	skills := dedup(req.Skills)
 	containerID := r.resolveContainerID(ctx, req.BotID, req.ContainerID)
 
 	var usableSkills []gatewaySkill
@@ -277,21 +289,19 @@ func (r *Resolver) resolve(ctx context.Context, req ChatRequest) (resolvedContex
 		CurrentChannel:    req.CurrentChannel,
 		AllowedActions:    req.AllowedActions,
 		MCPConnections:    mcpConnections,
-		Messages:          nonNilMessages(messages),
+		Messages:          nonNilModelMessages(messages),
 		Skills:            nonNilStrings(skills),
 		UsableSkills:      usableSkills,
 		Query:             req.Query,
 		Identity: gatewayIdentity{
-			BotID:           req.BotID,
-			SessionID:       req.SessionID,
-			ContainerID:     containerID,
-			ContactID:       firstNonEmpty(req.ContactID, req.UserID, req.BotID),
-			ContactName:     firstNonEmpty(req.ContactName, "User"),
-			ContactAlias:    req.ContactAlias,
-			UserID:          req.UserID,
-			CurrentPlatform: req.CurrentChannel,
-			ReplyTarget:     req.ReplyTarget,
-			SessionToken:    req.SessionToken,
+			BotID:             req.BotID,
+			SessionID:         req.ChatID,
+			ContainerID:       containerID,
+			ChannelIdentityID: firstNonEmpty(req.ChannelIdentityID, req.BotID),
+			DisplayName:       firstNonEmpty(req.DisplayName, "User"),
+			CurrentPlatform:   req.CurrentChannel,
+			ReplyTarget:       "",
+			SessionToken:      req.ChatToken,
 		},
 		Attachments: []any{},
 	}
@@ -311,7 +321,7 @@ func (r *Resolver) Chat(ctx context.Context, req ChatRequest) (ChatResponse, err
 	if err != nil {
 		return ChatResponse{}, err
 	}
-	if err := r.storeRound(ctx, req.BotID, req.SessionID, req.Query, resp.Messages, resp.Skills); err != nil {
+	if err := r.storeRound(ctx, req, resp.Messages); err != nil {
 		return ChatResponse{}, err
 	}
 	return ChatResponse{
@@ -333,13 +343,16 @@ func (r *Resolver) TriggerSchedule(ctx context.Context, botID string, payload sc
 		return fmt.Errorf("schedule command is required")
 	}
 
-	sessionID := "schedule:" + payload.ID
+	chatID := payload.ChatID
+	if strings.TrimSpace(chatID) == "" {
+		chatID = "schedule-" + payload.ID
+	}
 	req := ChatRequest{
-		BotID:     botID,
-		SessionID: sessionID,
-		Query:     payload.Command,
-		UserID:    payload.OwnerUserID,
-		Token:     token,
+		BotID:             botID,
+		ChatID:            chatID,
+		Query:             payload.Command,
+		ChannelIdentityID: payload.OwnerUserID,
+		Token:             token,
 	}
 	rc, err := r.resolve(ctx, req)
 	if err != nil {
@@ -357,12 +370,11 @@ func (r *Resolver) TriggerSchedule(ctx context.Context, botID string, payload sc
 		Skills:            rc.payload.Skills,
 		UsableSkills:      rc.payload.UsableSkills,
 		Identity: gatewayIdentity{
-			BotID:       rc.payload.Identity.BotID,
-			SessionID:   rc.payload.Identity.SessionID,
-			ContainerID: rc.payload.Identity.ContainerID,
-			ContactID:   botID,
-			ContactName: "Scheduler",
-			UserID:      payload.OwnerUserID,
+			BotID:             rc.payload.Identity.BotID,
+			SessionID:         rc.payload.Identity.SessionID,
+			ContainerID:       rc.payload.Identity.ContainerID,
+			ChannelIdentityID: firstNonEmpty(payload.OwnerUserID, botID),
+			DisplayName:       "Scheduler",
 		},
 		Attachments: rc.payload.Attachments,
 		Schedule: gatewaySchedule{
@@ -379,7 +391,7 @@ func (r *Resolver) TriggerSchedule(ctx context.Context, botID string, payload sc
 	if err != nil {
 		return err
 	}
-	return r.storeRound(ctx, botID, sessionID, payload.Command, resp.Messages, resp.Skills)
+	return r.storeRound(ctx, req, resp.Messages)
 }
 
 // --- StreamChat ---
@@ -390,7 +402,7 @@ func (r *Resolver) StreamChat(ctx context.Context, req ChatRequest) (<-chan Stre
 	errCh := make(chan error, 1)
 	r.logger.Info("gateway stream start",
 		slog.String("bot_id", req.BotID),
-		slog.String("session_id", req.SessionID),
+		slog.String("chat_id", req.ChatID),
 	)
 
 	go func() {
@@ -401,16 +413,16 @@ func (r *Resolver) StreamChat(ctx context.Context, req ChatRequest) (<-chan Stre
 		if err != nil {
 			r.logger.Error("gateway stream resolve failed",
 				slog.String("bot_id", req.BotID),
-				slog.String("session_id", req.SessionID),
+				slog.String("chat_id", req.ChatID),
 				slog.Any("error", err),
 			)
 			errCh <- err
 			return
 		}
-		if err := r.streamChat(ctx, rc.payload, req.BotID, req.SessionID, req.Query, req.Token, chunkCh); err != nil {
+		if err := r.streamChat(ctx, rc.payload, req, chunkCh); err != nil {
 			r.logger.Error("gateway stream request failed",
 				slog.String("bot_id", req.BotID),
-				slog.String("session_id", req.SessionID),
+				slog.String("chat_id", req.ChatID),
 				slog.Any("error", err),
 			)
 			errCh <- err
@@ -502,7 +514,7 @@ func (r *Resolver) postTriggerSchedule(ctx context.Context, payload triggerSched
 	return parsed, nil
 }
 
-func (r *Resolver) streamChat(ctx context.Context, payload gatewayRequest, botID, sessionID, query, token string, chunkCh chan<- StreamChunk) error {
+func (r *Resolver) streamChat(ctx context.Context, payload gatewayRequest, req ChatRequest, chunkCh chan<- StreamChunk) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -515,8 +527,8 @@ func (r *Resolver) streamChat(ctx context.Context, payload gatewayRequest, botID
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "text/event-stream")
-	if strings.TrimSpace(token) != "" {
-		httpReq.Header.Set("Authorization", token)
+	if strings.TrimSpace(req.Token) != "" {
+		httpReq.Header.Set("Authorization", req.Token)
 	}
 
 	resp, err := r.streamingClient.Do(httpReq)
@@ -558,7 +570,7 @@ func (r *Resolver) streamChat(ctx context.Context, payload gatewayRequest, botID
 		if stored {
 			continue
 		}
-		if handled, storeErr := r.tryStoreStream(ctx, botID, sessionID, query, currentEvent, data); storeErr != nil {
+		if handled, storeErr := r.tryStoreStream(ctx, req, currentEvent, data); storeErr != nil {
 			return storeErr
 		} else if handled {
 			stored = true
@@ -568,16 +580,16 @@ func (r *Resolver) streamChat(ctx context.Context, payload gatewayRequest, botID
 }
 
 // tryStoreStream attempts to extract final messages from a stream event and persist them.
-func (r *Resolver) tryStoreStream(ctx context.Context, botID, sessionID, query, eventType, data string) (bool, error) {
+func (r *Resolver) tryStoreStream(ctx context.Context, req ChatRequest, eventType, data string) (bool, error) {
 	// event: done + data: {messages: [...]}
 	if eventType == "done" {
 		var resp gatewayResponse
 		if err := json.Unmarshal([]byte(data), &resp); err == nil && len(resp.Messages) > 0 {
-			return true, r.storeRound(ctx, botID, sessionID, query, resp.Messages, resp.Skills)
+			return true, r.storeRound(ctx, req, resp.Messages)
 		}
 	}
 
-	// data: {"type":"agent_end"|"done", ...}
+	// data: {"type":"text_delta"|"agent_end"|"done", ...}
 	var envelope struct {
 		Type     string          `json:"type"`
 		Data     json.RawMessage `json:"data"`
@@ -585,13 +597,13 @@ func (r *Resolver) tryStoreStream(ctx context.Context, botID, sessionID, query, 
 		Skills   []string        `json:"skills"`
 	}
 	if err := json.Unmarshal([]byte(data), &envelope); err == nil {
-		if envelope.Type == "agent_end" && len(envelope.Messages) > 0 {
-			return true, r.storeRound(ctx, botID, sessionID, query, envelope.Messages, envelope.Skills)
+		if (envelope.Type == "agent_end" || envelope.Type == "done") && len(envelope.Messages) > 0 {
+			return true, r.storeRound(ctx, req, envelope.Messages)
 		}
 		if envelope.Type == "done" && len(envelope.Data) > 0 {
 			var resp gatewayResponse
 			if err := json.Unmarshal(envelope.Data, &resp); err == nil && len(resp.Messages) > 0 {
-				return true, r.storeRound(ctx, botID, sessionID, query, resp.Messages, resp.Skills)
+				return true, r.storeRound(ctx, req, resp.Messages)
 			}
 		}
 	}
@@ -599,7 +611,7 @@ func (r *Resolver) tryStoreStream(ctx context.Context, botID, sessionID, query, 
 	// fallback: data: {messages: [...]}
 	var resp gatewayResponse
 	if err := json.Unmarshal([]byte(data), &resp); err == nil && len(resp.Messages) > 0 {
-		return true, r.storeRound(ctx, botID, sessionID, query, resp.Messages, resp.Skills)
+		return true, r.storeRound(ctx, req, resp.Messages)
 	}
 	return false, nil
 }
@@ -622,103 +634,206 @@ func (r *Resolver) resolveContainerID(ctx context.Context, botID, explicit strin
 	return "mcp-" + botID
 }
 
-// --- history helpers ---
+// --- message loading ---
 
-func (r *Resolver) loadHistoryMessages(ctx context.Context, botID, sessionID string, maxContextMinutes int) ([]ModelMessage, error) {
-	if r.historyService == nil {
-		return nil, fmt.Errorf("history service not configured")
-	}
+func (r *Resolver) loadChatMessages(ctx context.Context, chatID string, maxContextMinutes int) ([]ModelMessage, error) {
 	since := time.Now().UTC().Add(-time.Duration(maxContextMinutes) * time.Minute)
-	records, err := r.historyService.ListBySessionSince(ctx, botID, sessionID, since)
+	msgs, err := r.chatService.ListMessagesSince(ctx, chatID, since)
 	if err != nil {
 		return nil, err
 	}
-	var messages []ModelMessage
-	for _, record := range records {
-		msgs, err := recordToMessages(record)
+	var result []ModelMessage
+	for _, m := range msgs {
+		var mm ModelMessage
+		if err := json.Unmarshal(m.Content, &mm); err != nil {
+			// Fallback: treat content as text string.
+			mm = ModelMessage{Role: m.Role, Content: m.Content}
+		} else {
+			mm.Role = m.Role
+		}
+		result = append(result, mm)
+	}
+	return result, nil
+}
+
+type memoryContextItem struct {
+	Namespace string
+	Item      memory.MemoryItem
+}
+
+func (r *Resolver) loadMemoryContextMessage(ctx context.Context, req ChatRequest, settings Settings) *ModelMessage {
+	if r.memoryService == nil {
+		return nil
+	}
+	if strings.TrimSpace(req.Query) == "" || strings.TrimSpace(req.BotID) == "" || strings.TrimSpace(req.ChatID) == "" {
+		return nil
+	}
+	type memoryScope struct {
+		Namespace string
+		ScopeID   string
+	}
+	var scopes []memoryScope
+	if settings.EnableChatMemory {
+		scopes = append(scopes, memoryScope{Namespace: "chat", ScopeID: req.ChatID})
+	}
+	if settings.EnablePrivateMemory && strings.TrimSpace(req.ChannelIdentityID) != "" {
+		scopes = append(scopes, memoryScope{Namespace: "private", ScopeID: req.ChannelIdentityID})
+	}
+	if settings.EnablePublicMemory {
+		scopes = append(scopes, memoryScope{Namespace: "public", ScopeID: req.BotID})
+	}
+	if len(scopes) == 0 {
+		return nil
+	}
+
+	results := make([]memoryContextItem, 0, len(scopes)*memoryContextLimitPerScope)
+	seen := map[string]struct{}{}
+	for _, scope := range scopes {
+		resp, err := r.memoryService.Search(ctx, memory.SearchRequest{
+			Query: req.Query,
+			BotID: req.BotID,
+			Limit: memoryContextLimitPerScope,
+			Filters: map[string]any{
+				"namespace": scope.Namespace,
+				"scopeId":   scope.ScopeID,
+				"botId":     req.BotID,
+			},
+		})
 		if err != nil {
-			r.logger.Warn("skip malformed history record", slog.String("record_id", record.ID), slog.Any("error", err))
+			r.logger.Warn("memory search for context failed",
+				slog.String("namespace", scope.Namespace),
+				slog.Any("error", err),
+			)
 			continue
 		}
-		messages = append(messages, msgs...)
+		for _, item := range resp.Results {
+			key := strings.TrimSpace(item.ID)
+			if key == "" {
+				key = scope.Namespace + ":" + strings.TrimSpace(item.Memory)
+			}
+			if key == "" {
+				continue
+			}
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			results = append(results, memoryContextItem{Namespace: scope.Namespace, Item: item})
+		}
 	}
-	return messages, nil
-}
+	if len(results) == 0 {
+		return nil
+	}
 
-func (r *Resolver) loadHistorySkills(ctx context.Context, botID, sessionID string, maxContextMinutes int) ([]string, error) {
-	if r.historyService == nil {
-		return nil, fmt.Errorf("history service not configured")
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Item.Score > results[j].Item.Score
+	})
+	if len(results) > memoryContextMaxItems {
+		results = results[:memoryContextMaxItems]
 	}
-	since := time.Now().UTC().Add(-time.Duration(maxContextMinutes) * time.Minute)
-	records, err := r.historyService.ListBySessionSince(ctx, botID, sessionID, since)
-	if err != nil {
-		return nil, err
-	}
-	var combined []string
-	for _, record := range records {
-		combined = append(combined, record.Skills...)
-	}
-	return dedup(combined), nil
-}
 
-// recordToMessages converts a history record (stored as []map[string]any) to typed ModelMessages.
-func recordToMessages(record history.Record) ([]ModelMessage, error) {
-	if len(record.Messages) == 0 {
-		return nil, nil
+	var sb strings.Builder
+	sb.WriteString("Relevant memory context (use when helpful):\n")
+	for _, entry := range results {
+		text := strings.TrimSpace(entry.Item.Memory)
+		if text == "" {
+			continue
+		}
+		sb.WriteString("- [")
+		sb.WriteString(entry.Namespace)
+		sb.WriteString("] ")
+		sb.WriteString(truncateMemorySnippet(text, memoryContextItemMaxChars))
+		sb.WriteString("\n")
 	}
-	raw, err := json.Marshal(record.Messages)
-	if err != nil {
-		return nil, err
+	payload := strings.TrimSpace(sb.String())
+	if payload == "" {
+		return nil
 	}
-	var msgs []ModelMessage
-	if err := json.Unmarshal(raw, &msgs); err != nil {
-		return nil, err
+	msg := ModelMessage{
+		Role:    "system",
+		Content: NewTextContent(payload),
 	}
-	return msgs, nil
+	return &msg
 }
 
 // --- store helpers ---
 
-func (r *Resolver) storeRound(ctx context.Context, botID, sessionID, query string, messages []ModelMessage, skills []string) error {
-	if err := r.storeHistory(ctx, botID, sessionID, query, messages, skills); err != nil {
-		return err
+func (r *Resolver) storeRound(ctx context.Context, req ChatRequest, messages []ModelMessage) error {
+	// Add user query as the first message if not already present in the round.
+	// This ensures the user's prompt is persisted alongside the assistant's response.
+	fullRound := make([]ModelMessage, 0, len(messages)+1)
+	hasUserQuery := false
+	for _, m := range messages {
+		if m.Role == "user" && m.TextContent() == req.Query {
+			hasUserQuery = true
+			break
+		}
 	}
-	r.storeMemory(ctx, botID, sessionID, query, messages)
+	if !hasUserQuery && strings.TrimSpace(req.Query) != "" {
+		fullRound = append(fullRound, ModelMessage{
+			Role:    "user",
+			Content: NewTextContent(req.Query),
+		})
+	}
+	fullRound = append(fullRound, messages...)
+
+	r.storeMessages(ctx, req, fullRound)
+	r.storeMemory(ctx, req.BotID, req.ChatID, req.ChannelIdentityID, req.Query, fullRound)
 	return nil
 }
 
-func (r *Resolver) storeHistory(ctx context.Context, botID, sessionID, query string, messages []ModelMessage, skills []string) error {
-	if r.historyService == nil {
-		return fmt.Errorf("history service not configured")
+func (r *Resolver) storeMessages(ctx context.Context, req ChatRequest, messages []ModelMessage) {
+	if r.chatService == nil {
+		return
 	}
-	if strings.TrimSpace(botID) == "" || strings.TrimSpace(sessionID) == "" {
-		return fmt.Errorf("bot id and session id are required")
+	if strings.TrimSpace(req.BotID) == "" || strings.TrimSpace(req.ChatID) == "" {
+		return
 	}
-	if strings.TrimSpace(query) == "" && len(messages) == 0 {
-		return nil
+	// Build route-level metadata for traceability.
+	var meta map[string]any
+	if strings.TrimSpace(req.RouteID) != "" || strings.TrimSpace(req.CurrentChannel) != "" {
+		meta = map[string]any{}
+		if strings.TrimSpace(req.RouteID) != "" {
+			meta["route_id"] = req.RouteID
+		}
+		if strings.TrimSpace(req.CurrentChannel) != "" {
+			meta["platform"] = req.CurrentChannel
+		}
 	}
-	// Convert typed messages to []map[string]any for the history service.
-	raw, err := json.Marshal(messages)
-	if err != nil {
-		return err
+	for _, msg := range messages {
+		content, err := json.Marshal(msg)
+		if err != nil {
+			continue
+		}
+		senderID := ""
+		externalMessageID := ""
+		if msg.Role == "user" {
+			senderID = req.ChannelIdentityID
+			externalMessageID = req.ExternalMessageID
+		}
+		if _, err := r.chatService.PersistMessage(
+			ctx,
+			req.ChatID,
+			req.BotID,
+			req.RouteID,
+			"",
+			senderID,
+			req.CurrentChannel,
+			externalMessageID,
+			msg.Role,
+			content,
+			meta,
+		); err != nil {
+			r.logger.Warn("persist message failed", slog.Any("error", err))
+		}
 	}
-	var rows []map[string]any
-	if err := json.Unmarshal(raw, &rows); err != nil {
-		return err
-	}
-	_, err = r.historyService.Create(ctx, botID, strings.TrimSpace(sessionID), history.CreateRequest{
-		Messages: rows,
-		Metadata: map[string]any{"query": strings.TrimSpace(query)},
-		Skills:   skills,
-	})
-	return err
 }
 
-func (r *Resolver) storeMemory(ctx context.Context, botID, sessionID, query string, messages []ModelMessage) {
+func (r *Resolver) storeMemory(ctx context.Context, botID, chatID, channelIdentityID, query string, messages []ModelMessage) {
 	if r.memoryService == nil {
 		return
 	}
-	if strings.TrimSpace(botID) == "" || strings.TrimSpace(sessionID) == "" {
+	if strings.TrimSpace(botID) == "" || strings.TrimSpace(chatID) == "" {
 		return
 	}
 	memMsgs := make([]memory.Message, 0, len(messages))
@@ -736,27 +851,68 @@ func (r *Resolver) storeMemory(ctx context.Context, botID, sessionID, query stri
 	if len(memMsgs) == 0 {
 		return
 	}
+
+	// Load chat settings to determine which namespaces to write to.
+	var cs Settings
+	if r.chatService != nil {
+		settings, err := r.chatService.GetSettings(ctx, chatID)
+		if err != nil {
+			r.logger.Warn("load chat settings for memory write failed", slog.Any("error", err))
+		} else {
+			cs = settings
+			r.enforceGroupMemoryPolicy(ctx, chatID, &cs)
+		}
+	}
+
+	// Always write to chat namespace if enabled (default true).
+	if cs.EnableChatMemory {
+		r.addMemory(ctx, botID, memMsgs, "chat", chatID)
+	}
+
+	// Write to private namespace if enabled and channel identity is known.
+	if cs.EnablePrivateMemory && strings.TrimSpace(channelIdentityID) != "" {
+		r.addMemory(ctx, botID, memMsgs, "private", channelIdentityID)
+	}
+
+	// Write to public namespace if enabled.
+	if cs.EnablePublicMemory {
+		r.addMemory(ctx, botID, memMsgs, "public", botID)
+	}
+}
+
+func (r *Resolver) addMemory(ctx context.Context, botID string, msgs []memory.Message, namespace, scopeID string) {
+	filters := map[string]any{
+		"namespace": namespace,
+		"scopeId":   scopeID,
+		"botId":     botID,
+	}
 	if _, err := r.memoryService.Add(ctx, memory.AddRequest{
-		Messages:  memMsgs,
-		BotID:     botID,
-		SessionID: strings.TrimSpace(sessionID),
+		Messages: msgs,
+		BotID:    botID,
+		Filters:  filters,
 	}); err != nil {
-		r.logger.Warn("store memory failed", slog.Any("error", err))
+		r.logger.Warn("store memory failed",
+			slog.String("namespace", namespace),
+			slog.String("scope_id", scopeID),
+			slog.Any("error", err),
+		)
 	}
 }
 
 // --- model selection ---
 
-func (r *Resolver) selectChatModel(ctx context.Context, req ChatRequest, botSettings settings.Settings, us resolvedUserSettings) (models.GetResponse, sqlc.LlmProvider, error) {
+func (r *Resolver) selectChatModel(ctx context.Context, req ChatRequest, botSettings settings.Settings, us resolvedUserSettings, cs Settings) (models.GetResponse, sqlc.LlmProvider, error) {
 	if r.modelsService == nil {
 		return models.GetResponse{}, sqlc.LlmProvider{}, fmt.Errorf("models service not configured")
 	}
 	modelID := strings.TrimSpace(req.Model)
 	providerFilter := strings.TrimSpace(req.Provider)
 
-	// Priority: request model > bot settings > user settings.
+	// Priority: request model > chat settings > bot settings > user settings.
 	if modelID == "" && providerFilter == "" {
-		if value := strings.TrimSpace(botSettings.ChatModelID); value != "" {
+		if value := strings.TrimSpace(cs.ModelID); value != "" {
+			modelID = value
+		} else if value := strings.TrimSpace(botSettings.ChatModelID); value != "" {
 			modelID = value
 		} else if value := strings.TrimSpace(us.ChatModelID); value != "" {
 			modelID = value
@@ -922,7 +1078,7 @@ func nonNilStrings(s []string) []string {
 	return s
 }
 
-func nonNilMessages(m []ModelMessage) []ModelMessage {
+func nonNilModelMessages(m []ModelMessage) []ModelMessage {
 	if m == nil {
 		return []ModelMessage{}
 	}
@@ -936,6 +1092,14 @@ func truncate(s string, n int) string {
 	return s[:n] + "..."
 }
 
+func truncateMemorySnippet(s string, n int) string {
+	trimmed := strings.TrimSpace(s)
+	if len(trimmed) <= n {
+		return trimmed
+	}
+	return strings.TrimSpace(trimmed[:n]) + "..."
+}
+
 func parseUUID(id string) (pgtype.UUID, error) {
 	trimmed := strings.TrimSpace(id)
 	if trimmed == "" {
@@ -946,4 +1110,17 @@ func parseUUID(id string) (pgtype.UUID, error) {
 		return pgtype.UUID{}, fmt.Errorf("invalid UUID: %w", err)
 	}
 	return pgID, nil
+}
+
+func (r *Resolver) enforceGroupMemoryPolicy(ctx context.Context, chatID string, settings *Settings) {
+	if r == nil || r.chatService == nil || settings == nil {
+		return
+	}
+	chatObj, err := r.chatService.Get(ctx, chatID)
+	if err != nil {
+		return
+	}
+	if strings.EqualFold(strings.TrimSpace(chatObj.Kind), KindGroup) {
+		settings.EnablePrivateMemory = false
+	}
 }

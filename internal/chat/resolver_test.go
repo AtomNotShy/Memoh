@@ -47,12 +47,11 @@ func TestPostTriggerSchedule_Endpoint(t *testing.T) {
 		Messages:          []ModelMessage{},
 		Skills:            []string{},
 		Identity: gatewayIdentity{
-			BotID:       "bot-123",
-			SessionID:   "schedule:sched-1",
-			ContainerID: "mcp-bot-123",
-			ContactID:   "bot-123",
-			ContactName: "Scheduler",
-			UserID:      "owner-user-1",
+			BotID:             "bot-123",
+			SessionID:         "schedule:sched-1",
+			ContainerID:       "mcp-bot-123",
+			ChannelIdentityID: "owner-user-1",
+			DisplayName:       "Scheduler",
 		},
 		Attachments: []any{},
 		Schedule: gatewaySchedule{

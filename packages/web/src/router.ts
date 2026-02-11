@@ -1,6 +1,4 @@
 import { createRouter, createWebHistory, type RouteLocationNormalized } from 'vue-router'
-import { h } from 'vue'
-import { RouterView } from 'vue-router'
 import { i18nRef } from './i18n'
 
 const routes = [
@@ -36,54 +34,66 @@ const routes = [
         breadcrumb: i18nRef('home.title')
       }
     }, {
-      path: 'bots',
-      component: { render: () => h(RouterView) },
-      meta: {
-        breadcrumb: i18nRef('sidebar.bots')
-      },
-      children: [
-        {
-          name: 'bots',
-          path: '',
-          component: () => import('@/pages/bots/index.vue'),
-        },
-        {
-          name: 'bot-detail',
-          path: ':botId',
-          component: () => import('@/pages/bots/detail.vue'),
-          meta: {
-            breadcrumb: (route: RouteLocationNormalized) => route.params.botId,
-          },
-        },
-      ],
-    }, {
-      name: 'models',
-      path: 'models',
-      component: () => import('@/pages/models/index.vue'),
-      meta: {
-        breadcrumb: i18nRef('sidebar.models')
-      }
-    }, {
       name: 'settings',
       path: 'settings',
       component: () => import('@/pages/settings/index.vue'),
       meta: {
         breadcrumb: i18nRef('sidebar.settings')
-      }
+      },
+      children: [
+        {
+          name: 'settings-user',
+          path: 'user',
+          component: () => import('@/pages/settings/user.vue'),
+          meta: {
+            breadcrumb: i18nRef('settings.user')
+          },
+        },
+        {
+          name: 'bots',
+          path: 'bots',
+          component: () => import('@/pages/bots/index.vue'),
+          meta: {
+            breadcrumb: i18nRef('sidebar.bots')
+          },
+        },
+        {
+          name: 'bot-detail',
+          path: 'bots/:botId',
+          component: () => import('@/pages/bots/detail.vue'),
+          meta: {
+            breadcrumb: (route: RouteLocationNormalized) => route.params.botId,
+          },
+        },
+        {
+          name: 'models',
+          path: 'models',
+          component: () => import('@/pages/models/index.vue'),
+          meta: {
+            breadcrumb: i18nRef('sidebar.models')
+          },
+        },
+        {
+          name: 'mcp',
+          path: 'mcp',
+          component: () => import('@/pages/mcp/index.vue'),
+          meta: {
+            breadcrumb: i18nRef('sidebar.mcp')
+          },
+        },
+      ],
     }, {
-      name: 'mcp',
+      path: 'bots',
+      redirect: '/main/settings/bots',
+    }, {
+      path: 'bots/:botId',
+      redirect: (to) => `/main/settings/bots/${to.params.botId}`,
+    }, {
+      path: 'models',
+      redirect: '/main/settings/models',
+    }, {
       path: 'mcp',
-      component: () => import('@/pages/mcp/index.vue'),
-      meta: {
-        breadcrumb: 'MCP'
-      }
-    }, {
-      name: 'platform',
-      path: 'platform',
-      component: () => import('@/pages/platform/index.vue'),
-      meta: {
-        breadcrumb: i18nRef('sidebar.platform')
-      }
+      redirect: '/main/settings/mcp',
     }]
   }
 

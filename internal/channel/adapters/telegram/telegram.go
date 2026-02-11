@@ -183,7 +183,7 @@ func (a *TelegramAdapter) Connect(ctx context.Context, cfg channel.ChannelConfig
 				if text == "" && len(attachments) == 0 {
 					continue
 				}
-				externalID, displayName, attrs := resolveTelegramSender(update.Message)
+				subjectID, displayName, attrs := resolveTelegramSender(update.Message)
 				chatID := ""
 				chatType := ""
 				chatName := ""
@@ -193,6 +193,10 @@ func (a *TelegramAdapter) Connect(ctx context.Context, cfg channel.ChannelConfig
 					chatName = strings.TrimSpace(update.Message.Chat.Title)
 				}
 				replyRef := buildTelegramReplyRef(update.Message, chatID)
+				isReplyToBot := update.Message.ReplyToMessage != nil &&
+					update.Message.ReplyToMessage.From != nil &&
+					update.Message.ReplyToMessage.From.IsBot
+				isMentioned := isTelegramBotMentioned(update.Message, bot.Self.UserName)
 				msg := channel.InboundMessage{
 					Channel: Type,
 					Message: channel.Message{
@@ -205,7 +209,7 @@ func (a *TelegramAdapter) Connect(ctx context.Context, cfg channel.ChannelConfig
 					BotID:       cfg.BotID,
 					ReplyTarget: chatID,
 					Sender: channel.Identity{
-						ExternalID:  externalID,
+						SubjectID:   subjectID,
 						DisplayName: displayName,
 						Attributes:  attrs,
 					},
@@ -216,6 +220,10 @@ func (a *TelegramAdapter) Connect(ctx context.Context, cfg channel.ChannelConfig
 					},
 					ReceivedAt: time.Unix(int64(update.Message.Date), 0).UTC(),
 					Source:     "telegram",
+					Metadata: map[string]any{
+						"is_mentioned":    isMentioned,
+						"is_reply_to_bot": isReplyToBot,
+					},
 				}
 				if a.logger != nil {
 					a.logger.Info(
@@ -563,6 +571,33 @@ func resolveTelegramParseMode(format channel.MessageFormat) string {
 	default:
 		return ""
 	}
+}
+
+func isTelegramBotMentioned(msg *tgbotapi.Message, botUsername string) bool {
+	if msg == nil {
+		return false
+	}
+	normalizedBot := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(botUsername), "@"))
+	if normalizedBot != "" {
+		text := strings.TrimSpace(msg.Text)
+		if text == "" {
+			text = strings.TrimSpace(msg.Caption)
+		}
+		if text != "" {
+			if strings.Contains(strings.ToLower(text), "@"+normalizedBot) {
+				return true
+			}
+		}
+	}
+	entities := make([]tgbotapi.MessageEntity, 0, len(msg.Entities)+len(msg.CaptionEntities))
+	entities = append(entities, msg.Entities...)
+	entities = append(entities, msg.CaptionEntities...)
+	for _, entity := range entities {
+		if entity.Type == "text_mention" && entity.User != nil && entity.User.IsBot {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *TelegramAdapter) collectTelegramAttachments(bot *tgbotapi.BotAPI, msg *tgbotapi.Message) []channel.Attachment {

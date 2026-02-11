@@ -1,11 +1,140 @@
 // Package chat orchestrates conversations with the agent gateway, including
-// synchronous and streaming chat, scheduled triggers, history, and memory storage.
+// synchronous and streaming chat, scheduled triggers, messages, and memory storage.
 package chat
 
 import (
 	"encoding/json"
 	"strings"
+	"time"
 )
+
+// Chat kind constants.
+const (
+	KindDirect = "direct"
+	KindGroup  = "group"
+	KindThread = "thread"
+)
+
+// Participant role constants.
+const (
+	RoleOwner  = "owner"
+	RoleAdmin  = "admin"
+	RoleMember = "member"
+)
+
+// Chat list access mode constants.
+const (
+	AccessModeParticipant             = "participant"
+	AccessModeChannelIdentityObserved = "channel_identity_observed"
+)
+
+// Chat is the first-class conversation container.
+type Chat struct {
+	ID           string         `json:"id"`
+	BotID        string         `json:"bot_id"`
+	Kind         string         `json:"kind"`
+	ParentChatID string         `json:"parent_chat_id,omitempty"`
+	Title        string         `json:"title,omitempty"`
+	CreatedBy    string         `json:"created_by"`
+	Metadata     map[string]any `json:"metadata,omitempty"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+}
+
+// ChatListItem is a chat entry with access context for list rendering.
+type ChatListItem struct {
+	ID              string         `json:"id"`
+	BotID           string         `json:"bot_id"`
+	Kind            string         `json:"kind"`
+	ParentChatID    string         `json:"parent_chat_id,omitempty"`
+	Title           string         `json:"title,omitempty"`
+	CreatedBy       string         `json:"created_by"`
+	Metadata        map[string]any `json:"metadata,omitempty"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
+	AccessMode      string         `json:"access_mode"`
+	ParticipantRole string         `json:"participant_role,omitempty"`
+	LastObservedAt  *time.Time     `json:"last_observed_at,omitempty"`
+}
+
+// ChatReadAccess is the resolved access context for reading chat content.
+type ChatReadAccess struct {
+	AccessMode      string
+	ParticipantRole string
+	LastObservedAt  *time.Time
+}
+
+// Participant represents a chat member.
+type Participant struct {
+	ChatID   string    `json:"chat_id"`
+	UserID   string    `json:"user_id"`
+	Role     string    `json:"role"`
+	JoinedAt time.Time `json:"joined_at"`
+}
+
+// Settings holds per-chat configuration.
+type Settings struct {
+	ChatID              string         `json:"chat_id"`
+	EnableChatMemory    bool           `json:"enable_chat_memory"`
+	EnablePrivateMemory bool           `json:"enable_private_memory"`
+	EnablePublicMemory  bool           `json:"enable_public_memory"`
+	ModelID             string         `json:"model_id,omitempty"`
+	Metadata            map[string]any `json:"metadata,omitempty"`
+}
+
+// Route maps external channel conversations to a chat.
+type Route struct {
+	ID              string         `json:"id"`
+	ChatID          string         `json:"chat_id"`
+	BotID           string         `json:"bot_id"`
+	Platform        string         `json:"platform"`
+	ChannelConfigID string         `json:"channel_config_id,omitempty"`
+	ConversationID  string         `json:"conversation_id"`
+	ThreadID        string         `json:"thread_id,omitempty"`
+	ReplyTarget     string         `json:"reply_target,omitempty"`
+	Metadata        map[string]any `json:"metadata,omitempty"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
+}
+
+// Message represents a single persisted chat message.
+type Message struct {
+	ID                      string          `json:"id"`
+	ChatID                  string          `json:"chat_id"`
+	BotID                   string          `json:"bot_id"`
+	RouteID                 string          `json:"route_id,omitempty"`
+	SenderChannelIdentityID string          `json:"sender_channel_identity_id,omitempty"`
+	SenderUserID            string          `json:"sender_user_id,omitempty"`
+	Platform                string          `json:"platform,omitempty"`
+	ExternalMessageID       string          `json:"external_message_id,omitempty"`
+	Role                    string          `json:"role"`
+	Content                 json.RawMessage `json:"content"`
+	Metadata                map[string]any  `json:"metadata,omitempty"`
+	CreatedAt               time.Time       `json:"created_at"`
+}
+
+// CreateChatRequest is the input for creating a chat.
+type CreateChatRequest struct {
+	Kind         string         `json:"kind"`
+	Title        string         `json:"title,omitempty"`
+	ParentChatID string         `json:"parent_chat_id,omitempty"`
+	Metadata     map[string]any `json:"metadata,omitempty"`
+}
+
+// UpdateSettingsRequest is the input for updating chat settings.
+type UpdateSettingsRequest struct {
+	EnableChatMemory    *bool   `json:"enable_chat_memory,omitempty"`
+	EnablePrivateMemory *bool   `json:"enable_private_memory,omitempty"`
+	EnablePublicMemory  *bool   `json:"enable_public_memory,omitempty"`
+	ModelID             *string `json:"model_id,omitempty"`
+}
+
+// ResolveChatResult is returned by ResolveChat.
+type ResolveChatResult struct {
+	ChatID  string
+	RouteID string
+	Created bool
+}
 
 // ModelMessage is the canonical message format exchanged with the agent gateway.
 // Aligned with Vercel AI SDK ModelMessage structure.
@@ -73,14 +202,14 @@ func NewTextContent(text string) json.RawMessage {
 
 // ContentPart represents one element of a multi-part message content.
 type ContentPart struct {
-	Type     string         `json:"type"`
-	Text     string         `json:"text,omitempty"`
-	URL      string         `json:"url,omitempty"`
-	Styles   []string       `json:"styles,omitempty"`
-	Language string         `json:"language,omitempty"`
-	UserID   string         `json:"user_id,omitempty"`
-	Emoji    string         `json:"emoji,omitempty"`
-	Metadata map[string]any `json:"metadata,omitempty"`
+	Type              string         `json:"type"`
+	Text              string         `json:"text,omitempty"`
+	URL               string         `json:"url,omitempty"`
+	Styles            []string       `json:"styles,omitempty"`
+	Language          string         `json:"language,omitempty"`
+	ChannelIdentityID string         `json:"channel_identity_id,omitempty"`
+	Emoji             string         `json:"emoji,omitempty"`
+	Metadata          map[string]any `json:"metadata,omitempty"`
 }
 
 // HasValue reports whether the content part carries a meaningful value.
@@ -105,16 +234,15 @@ type ToolCallFunction struct {
 
 // ChatRequest is the input for Chat and StreamChat.
 type ChatRequest struct {
-	BotID          string `json:"-"`
-	SessionID      string `json:"-"`
-	Token          string `json:"-"`
-	UserID         string `json:"-"`
-	ContainerID    string `json:"-"`
-	ContactID      string `json:"-"`
-	ContactName    string `json:"-"`
-	ContactAlias   string `json:"-"`
-	ReplyTarget    string `json:"-"`
-	SessionToken   string `json:"-"`
+	BotID             string `json:"-"`
+	ChatID            string `json:"-"`
+	Token             string `json:"-"`
+	ChannelIdentityID string `json:"-"`
+	ContainerID       string `json:"-"`
+	DisplayName       string `json:"-"`
+	RouteID           string `json:"-"`
+	ChatToken         string `json:"-"`
+	ExternalMessageID string `json:"-"`
 
 	Query              string         `json:"query"`
 	Model              string         `json:"model,omitempty"`

@@ -9,15 +9,21 @@ import (
 )
 
 type Bot struct {
-	ID          pgtype.UUID        `json:"id"`
-	OwnerUserID pgtype.UUID        `json:"owner_user_id"`
-	Type        string             `json:"type"`
-	DisplayName pgtype.Text        `json:"display_name"`
-	AvatarUrl   pgtype.Text        `json:"avatar_url"`
-	IsActive    bool               `json:"is_active"`
-	Metadata    []byte             `json:"metadata"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	ID                 pgtype.UUID        `json:"id"`
+	OwnerUserID        pgtype.UUID        `json:"owner_user_id"`
+	Type               string             `json:"type"`
+	DisplayName        pgtype.Text        `json:"display_name"`
+	AvatarUrl          pgtype.Text        `json:"avatar_url"`
+	IsActive           bool               `json:"is_active"`
+	MaxContextLoadTime int32              `json:"max_context_load_time"`
+	Language           string             `json:"language"`
+	AllowGuest         bool               `json:"allow_guest"`
+	ChatModelID        pgtype.UUID        `json:"chat_model_id"`
+	MemoryModelID      pgtype.UUID        `json:"memory_model_id"`
+	EmbeddingModelID   pgtype.UUID        `json:"embedding_model_id"`
+	Metadata           []byte             `json:"metadata"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 }
 
 type BotChannelConfig struct {
@@ -42,13 +48,6 @@ type BotMember struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
-type BotModelConfig struct {
-	BotID            pgtype.UUID `json:"bot_id"`
-	ChatModelID      pgtype.UUID `json:"chat_model_id"`
-	EmbeddingModelID pgtype.UUID `json:"embedding_model_id"`
-	MemoryModelID    pgtype.UUID `json:"memory_model_id"`
-}
-
 type BotPreauthKey struct {
 	ID             pgtype.UUID        `json:"id"`
 	BotID          pgtype.UUID        `json:"bot_id"`
@@ -59,49 +58,87 @@ type BotPreauthKey struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 }
 
-type BotSetting struct {
-	BotID              pgtype.UUID `json:"bot_id"`
-	MaxContextLoadTime int32       `json:"max_context_load_time"`
-	Language           string      `json:"language"`
-	AllowGuest         bool        `json:"allow_guest"`
+type ChannelIdentity struct {
+	ID               pgtype.UUID        `json:"id"`
+	UserID           pgtype.UUID        `json:"user_id"`
+	Channel          string             `json:"channel"`
+	ChannelSubjectID string             `json:"channel_subject_id"`
+	DisplayName      pgtype.Text        `json:"display_name"`
+	Metadata         []byte             `json:"metadata"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }
 
-type ChannelSession struct {
-	SessionID       string             `json:"session_id"`
+type ChannelIdentityBindCode struct {
+	ID                      pgtype.UUID        `json:"id"`
+	Token                   string             `json:"token"`
+	IssuedByUserID          pgtype.UUID        `json:"issued_by_user_id"`
+	Platform                pgtype.Text        `json:"platform"`
+	ExpiresAt               pgtype.Timestamptz `json:"expires_at"`
+	UsedAt                  pgtype.Timestamptz `json:"used_at"`
+	UsedByChannelIdentityID pgtype.UUID        `json:"used_by_channel_identity_id"`
+	CreatedAt               pgtype.Timestamptz `json:"created_at"`
+}
+
+type Chat struct {
+	ID                  pgtype.UUID        `json:"id"`
+	BotID               pgtype.UUID        `json:"bot_id"`
+	Kind                string             `json:"kind"`
+	ParentChatID        pgtype.UUID        `json:"parent_chat_id"`
+	Title               pgtype.Text        `json:"title"`
+	CreatedByUserID     pgtype.UUID        `json:"created_by_user_id"`
+	Metadata            []byte             `json:"metadata"`
+	EnableChatMemory    bool               `json:"enable_chat_memory"`
+	EnablePrivateMemory bool               `json:"enable_private_memory"`
+	EnablePublicMemory  bool               `json:"enable_public_memory"`
+	ModelID             pgtype.Text        `json:"model_id"`
+	SettingsMetadata    []byte             `json:"settings_metadata"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ChatChannelIdentityPresence struct {
+	ChatID            pgtype.UUID        `json:"chat_id"`
+	ChannelIdentityID pgtype.UUID        `json:"channel_identity_id"`
+	FirstSeenAt       pgtype.Timestamptz `json:"first_seen_at"`
+	LastSeenAt        pgtype.Timestamptz `json:"last_seen_at"`
+	MessageCount      int64              `json:"message_count"`
+}
+
+type ChatMessage struct {
+	ID                      pgtype.UUID        `json:"id"`
+	ChatID                  pgtype.UUID        `json:"chat_id"`
+	BotID                   pgtype.UUID        `json:"bot_id"`
+	RouteID                 pgtype.UUID        `json:"route_id"`
+	SenderChannelIdentityID pgtype.UUID        `json:"sender_channel_identity_id"`
+	SenderUserID            pgtype.UUID        `json:"sender_user_id"`
+	Platform                pgtype.Text        `json:"platform"`
+	ExternalMessageID       pgtype.Text        `json:"external_message_id"`
+	Role                    string             `json:"role"`
+	Content                 []byte             `json:"content"`
+	Metadata                []byte             `json:"metadata"`
+	CreatedAt               pgtype.Timestamptz `json:"created_at"`
+}
+
+type ChatParticipant struct {
+	ChatID   pgtype.UUID        `json:"chat_id"`
+	UserID   pgtype.UUID        `json:"user_id"`
+	Role     string             `json:"role"`
+	JoinedAt pgtype.Timestamptz `json:"joined_at"`
+}
+
+type ChatRoute struct {
+	ID              pgtype.UUID        `json:"id"`
+	ChatID          pgtype.UUID        `json:"chat_id"`
 	BotID           pgtype.UUID        `json:"bot_id"`
-	ChannelConfigID pgtype.UUID        `json:"channel_config_id"`
-	UserID          pgtype.UUID        `json:"user_id"`
-	ContactID       pgtype.UUID        `json:"contact_id"`
 	Platform        string             `json:"platform"`
-	ReplyTarget     pgtype.Text        `json:"reply_target"`
+	ChannelConfigID pgtype.UUID        `json:"channel_config_id"`
+	ConversationID  string             `json:"conversation_id"`
 	ThreadID        pgtype.Text        `json:"thread_id"`
+	ReplyTarget     pgtype.Text        `json:"reply_target"`
 	Metadata        []byte             `json:"metadata"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
-}
-
-type Contact struct {
-	ID          pgtype.UUID        `json:"id"`
-	BotID       pgtype.UUID        `json:"bot_id"`
-	UserID      pgtype.UUID        `json:"user_id"`
-	DisplayName pgtype.Text        `json:"display_name"`
-	Alias       pgtype.Text        `json:"alias"`
-	Tags        []string           `json:"tags"`
-	Status      string             `json:"status"`
-	Metadata    []byte             `json:"metadata"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-}
-
-type ContactChannel struct {
-	ID         pgtype.UUID        `json:"id"`
-	BotID      pgtype.UUID        `json:"bot_id"`
-	ContactID  pgtype.UUID        `json:"contact_id"`
-	Platform   string             `json:"platform"`
-	ExternalID string             `json:"external_id"`
-	Metadata   []byte             `json:"metadata"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Container struct {
@@ -127,27 +164,6 @@ type ContainerVersion struct {
 	SnapshotID  string             `json:"snapshot_id"`
 	Version     int32              `json:"version"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-}
-
-type Conversation struct {
-	ID          pgtype.UUID        `json:"id"`
-	BotID       pgtype.UUID        `json:"bot_id"`
-	SessionID   string             `json:"session_id"`
-	ChannelType string             `json:"channel_type"`
-	ChatID      pgtype.Text        `json:"chat_id"`
-	SenderID    pgtype.Text        `json:"sender_id"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-}
-
-type History struct {
-	ID        pgtype.UUID        `json:"id"`
-	BotID     pgtype.UUID        `json:"bot_id"`
-	SessionID string             `json:"session_id"`
-	Messages  []byte             `json:"messages"`
-	Metadata  []byte             `json:"metadata"`
-	Skills    []string           `json:"skills"`
-	Timestamp pgtype.Timestamptz `json:"timestamp"`
 }
 
 type LifecycleEvent struct {
@@ -240,34 +256,31 @@ type Subagent struct {
 }
 
 type User struct {
-	ID           pgtype.UUID        `json:"id"`
-	Username     string             `json:"username"`
-	Email        pgtype.Text        `json:"email"`
-	PasswordHash string             `json:"password_hash"`
-	Role         string             `json:"role"`
-	DisplayName  pgtype.Text        `json:"display_name"`
-	AvatarUrl    pgtype.Text        `json:"avatar_url"`
-	IsActive     bool               `json:"is_active"`
-	DataRoot     pgtype.Text        `json:"data_root"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
-	LastLoginAt  pgtype.Timestamptz `json:"last_login_at"`
+	ID                 pgtype.UUID        `json:"id"`
+	Username           pgtype.Text        `json:"username"`
+	Email              pgtype.Text        `json:"email"`
+	PasswordHash       pgtype.Text        `json:"password_hash"`
+	Role               string             `json:"role"`
+	DisplayName        pgtype.Text        `json:"display_name"`
+	AvatarUrl          pgtype.Text        `json:"avatar_url"`
+	DataRoot           pgtype.Text        `json:"data_root"`
+	LastLoginAt        pgtype.Timestamptz `json:"last_login_at"`
+	ChatModelID        pgtype.Text        `json:"chat_model_id"`
+	MemoryModelID      pgtype.Text        `json:"memory_model_id"`
+	EmbeddingModelID   pgtype.Text        `json:"embedding_model_id"`
+	MaxContextLoadTime int32              `json:"max_context_load_time"`
+	Language           string             `json:"language"`
+	IsActive           bool               `json:"is_active"`
+	Metadata           []byte             `json:"metadata"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 }
 
 type UserChannelBinding struct {
-	ID          pgtype.UUID        `json:"id"`
-	UserID      pgtype.UUID        `json:"user_id"`
-	ChannelType string             `json:"channel_type"`
-	Config      []byte             `json:"config"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-}
-
-type UserSetting struct {
-	UserID             pgtype.UUID `json:"user_id"`
-	ChatModelID        pgtype.Text `json:"chat_model_id"`
-	MemoryModelID      pgtype.Text `json:"memory_model_id"`
-	EmbeddingModelID   pgtype.Text `json:"embedding_model_id"`
-	MaxContextLoadTime int32       `json:"max_context_load_time"`
-	Language           string      `json:"language"`
+	ID        pgtype.UUID        `json:"id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+	Platform  string             `json:"platform"`
+	Config    []byte             `json:"config"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }

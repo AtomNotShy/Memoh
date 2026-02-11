@@ -1,4 +1,81 @@
 definitions:
+  accounts.Account:
+    properties:
+      avatar_url:
+        type: string
+      created_at:
+        type: string
+      display_name:
+        type: string
+      email:
+        type: string
+      id:
+        type: string
+      is_active:
+        type: boolean
+      last_login_at:
+        type: string
+      role:
+        type: string
+      updated_at:
+        type: string
+      username:
+        type: string
+    type: object
+  accounts.CreateAccountRequest:
+    properties:
+      avatar_url:
+        type: string
+      display_name:
+        type: string
+      email:
+        type: string
+      is_active:
+        type: boolean
+      password:
+        type: string
+      role:
+        type: string
+      username:
+        type: string
+    type: object
+  accounts.ListAccountsResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/accounts.Account'
+        type: array
+    type: object
+  accounts.ResetPasswordRequest:
+    properties:
+      new_password:
+        type: string
+    type: object
+  accounts.UpdateAccountRequest:
+    properties:
+      avatar_url:
+        type: string
+      display_name:
+        type: string
+      is_active:
+        type: boolean
+      role:
+        type: string
+    type: object
+  accounts.UpdatePasswordRequest:
+    properties:
+      current_password:
+        type: string
+      new_password:
+        type: string
+    type: object
+  accounts.UpdateProfileRequest:
+    properties:
+      avatar_url:
+        type: string
+      display_name:
+        type: string
+    type: object
   bots.Bot:
     properties:
       avatar_url:
@@ -202,8 +279,10 @@ definitions:
       verifiedAt:
         type: string
     type: object
-  channel.ChannelUserBinding:
+  channel.ChannelIdentityBinding:
     properties:
+      channelIdentityID:
+        type: string
       channelType:
         type: string
       config:
@@ -214,8 +293,6 @@ definitions:
       id:
         type: string
       updatedAt:
-        type: string
-      userID:
         type: string
     type: object
   channel.ConfigSchema:
@@ -297,6 +374,8 @@ definitions:
     - MessageFormatRich
   channel.MessagePart:
     properties:
+      channel_identity_id:
+        type: string
       emoji:
         type: string
       language:
@@ -313,8 +392,6 @@ definitions:
       type:
         $ref: '#/definitions/channel.MessagePartType'
       url:
-        type: string
-      user_id:
         type: string
     type: object
   channel.MessagePartType:
@@ -352,11 +429,11 @@ definitions:
     type: object
   channel.SendRequest:
     properties:
+      channel_identity_id:
+        type: string
       message:
         $ref: '#/definitions/channel.Message'
       target:
-        type: string
-      user_id:
         type: string
     type: object
   channel.TargetHint:
@@ -380,6 +457,12 @@ definitions:
       id:
         type: string
     type: object
+  channel.UpsertChannelIdentityConfigRequest:
+    properties:
+      config:
+        additionalProperties: {}
+        type: object
+    type: object
   channel.UpsertConfigRequest:
     properties:
       credentials:
@@ -398,89 +481,24 @@ definitions:
       verified_at:
         type: string
     type: object
-  channel.UpsertUserConfigRequest:
+  channelidentities.ChannelIdentity:
     properties:
-      config:
-        additionalProperties: {}
-        type: object
-    type: object
-  chat.ChatRequest:
-    properties:
-      allowed_actions:
-        items:
-          type: string
-        type: array
-      channels:
-        items:
-          type: string
-        type: array
-      current_channel:
+      channel:
         type: string
-      language:
+      channel_subject_id:
         type: string
-      max_context_load_time:
-        type: integer
-      messages:
-        items:
-          $ref: '#/definitions/chat.ModelMessage'
-        type: array
-      model:
+      created_at:
         type: string
-      provider:
+      display_name:
         type: string
-      query:
-        type: string
-      skills:
-        items:
-          type: string
-        type: array
-    type: object
-  chat.ChatResponse:
-    properties:
-      messages:
-        items:
-          $ref: '#/definitions/chat.ModelMessage'
-        type: array
-      model:
-        type: string
-      provider:
-        type: string
-      skills:
-        items:
-          type: string
-        type: array
-    type: object
-  chat.ModelMessage:
-    properties:
-      content:
-        items:
-          type: integer
-        type: array
-      name:
-        type: string
-      role:
-        type: string
-      tool_call_id:
-        type: string
-      tool_calls:
-        items:
-          $ref: '#/definitions/chat.ToolCall'
-        type: array
-    type: object
-  chat.ToolCall:
-    properties:
-      function:
-        $ref: '#/definitions/chat.ToolCallFunction'
       id:
         type: string
-      type:
+      metadata:
+        additionalProperties: {}
+        type: object
+      updated_at:
         type: string
-    type: object
-  chat.ToolCallFunction:
-    properties:
-      arguments:
-        type: string
-      name:
+      user_id:
         type: string
     type: object
   github_com_memohai_memoh_internal_mcp.Connection:
@@ -833,120 +851,19 @@ definitions:
       updated_at:
         type: string
     type: object
-  handlers.memoryAddPayload:
+  handlers.listMyIdentitiesResponse:
     properties:
-      embedding_enabled:
-        type: boolean
-      filters:
-        additionalProperties: {}
-        type: object
-      infer:
-        type: boolean
-      message:
-        type: string
-      messages:
+      items:
         items:
-          $ref: '#/definitions/memory.Message'
+          $ref: '#/definitions/channelidentities.ChannelIdentity'
         type: array
-      metadata:
-        additionalProperties: {}
-        type: object
-      run_id:
+      user_id:
         type: string
-    type: object
-  handlers.memoryDeleteAllPayload:
-    properties:
-      run_id:
-        type: string
-    type: object
-  handlers.memoryEmbedUpsertPayload:
-    properties:
-      filters:
-        additionalProperties: {}
-        type: object
-      input:
-        $ref: '#/definitions/memory.EmbedInput'
-      metadata:
-        additionalProperties: {}
-        type: object
-      model:
-        type: string
-      provider:
-        type: string
-      run_id:
-        type: string
-      source:
-        type: string
-      type:
-        type: string
-    type: object
-  handlers.memorySearchPayload:
-    properties:
-      embedding_enabled:
-        type: boolean
-      filters:
-        additionalProperties: {}
-        type: object
-      limit:
-        type: integer
-      query:
-        type: string
-      run_id:
-        type: string
-      sources:
-        items:
-          type: string
-        type: array
     type: object
   handlers.skillsOpResponse:
     properties:
       ok:
         type: boolean
-    type: object
-  history.CreateRequest:
-    properties:
-      messages:
-        items:
-          additionalProperties: {}
-          type: object
-        type: array
-      metadata:
-        additionalProperties: {}
-        type: object
-      skills:
-        items:
-          type: string
-        type: array
-    type: object
-  history.ListResponse:
-    properties:
-      items:
-        items:
-          $ref: '#/definitions/history.Record'
-        type: array
-    type: object
-  history.Record:
-    properties:
-      bot_id:
-        type: string
-      id:
-        type: string
-      messages:
-        items:
-          additionalProperties: {}
-          type: object
-        type: array
-      metadata:
-        additionalProperties: {}
-        type: object
-      session_id:
-        type: string
-      skills:
-        items:
-          type: string
-        type: array
-      timestamp:
-        type: string
     type: object
   mcp.ListResponse:
     properties:
@@ -965,83 +882,6 @@ definitions:
       name:
         type: string
       type:
-        type: string
-    type: object
-  memory.DeleteResponse:
-    properties:
-      message:
-        type: string
-    type: object
-  memory.EmbedInput:
-    properties:
-      image_url:
-        type: string
-      text:
-        type: string
-      video_url:
-        type: string
-    type: object
-  memory.EmbedUpsertResponse:
-    properties:
-      dimensions:
-        type: integer
-      item:
-        $ref: '#/definitions/memory.MemoryItem'
-      model:
-        type: string
-      provider:
-        type: string
-    type: object
-  memory.MemoryItem:
-    properties:
-      agentId:
-        type: string
-      botId:
-        type: string
-      createdAt:
-        type: string
-      hash:
-        type: string
-      id:
-        type: string
-      memory:
-        type: string
-      metadata:
-        additionalProperties: {}
-        type: object
-      runId:
-        type: string
-      score:
-        type: number
-      sessionId:
-        type: string
-      updatedAt:
-        type: string
-    type: object
-  memory.Message:
-    properties:
-      content:
-        type: string
-      role:
-        type: string
-    type: object
-  memory.SearchResponse:
-    properties:
-      relations:
-        items: {}
-        type: array
-      results:
-        items:
-          $ref: '#/definitions/memory.MemoryItem'
-        type: array
-    type: object
-  memory.UpdateRequest:
-    properties:
-      embedding_enabled:
-        type: boolean
-      memory:
-        type: string
-      memory_id:
         type: string
     type: object
   models.AddRequest:
@@ -1396,83 +1236,6 @@ definitions:
           type: string
         type: array
     type: object
-  users.CreateUserRequest:
-    properties:
-      avatar_url:
-        type: string
-      display_name:
-        type: string
-      email:
-        type: string
-      is_active:
-        type: boolean
-      password:
-        type: string
-      role:
-        type: string
-      username:
-        type: string
-    type: object
-  users.ListUsersResponse:
-    properties:
-      items:
-        items:
-          $ref: '#/definitions/users.User'
-        type: array
-    type: object
-  users.ResetPasswordRequest:
-    properties:
-      new_password:
-        type: string
-    type: object
-  users.UpdatePasswordRequest:
-    properties:
-      current_password:
-        type: string
-      new_password:
-        type: string
-    type: object
-  users.UpdateProfileRequest:
-    properties:
-      avatar_url:
-        type: string
-      display_name:
-        type: string
-    type: object
-  users.UpdateUserRequest:
-    properties:
-      avatar_url:
-        type: string
-      display_name:
-        type: string
-      is_active:
-        type: boolean
-      role:
-        type: string
-    type: object
-  users.User:
-    properties:
-      avatar_url:
-        type: string
-      created_at:
-        type: string
-      display_name:
-        type: string
-      email:
-        type: string
-      id:
-        type: string
-      is_active:
-        type: boolean
-      last_login_at:
-        type: string
-      role:
-        type: string
-      updated_at:
-        type: string
-      username:
-        type: string
-    type: object
 info:
   contact: {}
   title: Memoh API
@@ -1565,68 +1328,6 @@ paths:
       summary: Create bot user
       tags:
       - bots
-  /bots/{bot_id}/chat:
-    post:
-      consumes:
-      - application/json
-      description: Send a chat message and get a response. The system will automatically
-        select an appropriate chat model from the database.
-      parameters:
-      - description: Chat request
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/chat.ChatRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/chat.ChatResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Chat with AI
-      tags:
-      - chat
-  /bots/{bot_id}/chat/stream:
-    post:
-      consumes:
-      - application/json
-      description: Send a chat message and get a streaming response. The system will
-        automatically select an appropriate chat model from the database.
-      parameters:
-      - description: Chat request
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/chat.ChatRequest'
-      produces:
-      - text/event-stream
-      responses:
-        "200":
-          description: OK
-          schema:
-            type: string
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Stream chat with AI
-      tags:
-      - chat
   /bots/{bot_id}/container:
     delete:
       parameters:
@@ -2224,126 +1925,6 @@ paths:
       summary: Stop container task for bot
       tags:
       - containerd
-  /bots/{bot_id}/history:
-    delete:
-      description: Delete all history records for current user
-      responses:
-        "204":
-          description: No Content
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Delete all history records
-      tags:
-      - history
-    get:
-      description: List history records for current user
-      parameters:
-      - description: Limit
-        in: query
-        name: limit
-        type: integer
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/history.ListResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: List history records
-      tags:
-      - history
-    post:
-      description: Create a history record for current user
-      parameters:
-      - description: History payload
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/history.CreateRequest'
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/history.Record'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Create history record
-      tags:
-      - history
-  /bots/{bot_id}/history/{id}:
-    delete:
-      description: Delete a history record by ID (must belong to current user)
-      parameters:
-      - description: History ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "204":
-          description: No Content
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Delete history record
-      tags:
-      - history
-    get:
-      description: Get a history record by ID (must belong to current user)
-      parameters:
-      - description: History ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/history.Record'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Get history record
-      tags:
-      - history
   /bots/{bot_id}/mcp:
     get:
       description: List MCP connections for a bot
@@ -2581,220 +2162,6 @@ paths:
       summary: Update MCP connection
       tags:
       - mcp
-  /bots/{bot_id}/memory/add:
-    post:
-      description: 'Add memory for a user via memory. Auth: Bearer JWT determines
-        user_id (sub or user_id).'
-      parameters:
-      - description: Add request
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/handlers.memoryAddPayload'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/memory.SearchResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Add memory
-      tags:
-      - memory
-  /bots/{bot_id}/memory/embed:
-    post:
-      description: 'Embed text or multimodal input and upsert into memory store. Auth:
-        Bearer JWT determines user_id (sub or user_id).'
-      parameters:
-      - description: Embed upsert request
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/handlers.memoryEmbedUpsertPayload'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/memory.EmbedUpsertResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Embed and upsert memory
-      tags:
-      - memory
-  /bots/{bot_id}/memory/memories:
-    delete:
-      description: 'Delete all memories for a user via memory. Auth: Bearer JWT determines
-        user_id (sub or user_id).'
-      parameters:
-      - description: Delete all request
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/handlers.memoryDeleteAllPayload'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/memory.DeleteResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Delete memories
-      tags:
-      - memory
-    get:
-      description: 'List memories for a user via memory. Auth: Bearer JWT determines
-        user_id (sub or user_id).'
-      parameters:
-      - description: Run ID
-        in: query
-        name: run_id
-        type: string
-      - description: Limit
-        in: query
-        name: limit
-        type: integer
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/memory.SearchResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: List memories
-      tags:
-      - memory
-  /bots/{bot_id}/memory/memories/{memoryId}:
-    delete:
-      description: 'Delete a memory by ID via memory. Auth: Bearer JWT determines
-        user_id (sub or user_id).'
-      parameters:
-      - description: Memory ID
-        in: path
-        name: memoryId
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/memory.DeleteResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Delete memory
-      tags:
-      - memory
-    get:
-      description: 'Get a memory by ID via memory. Auth: Bearer JWT determines user_id
-        (sub or user_id).'
-      parameters:
-      - description: Memory ID
-        in: path
-        name: memoryId
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/memory.MemoryItem'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Get memory
-      tags:
-      - memory
-  /bots/{bot_id}/memory/search:
-    post:
-      description: 'Search memories for a user via memory. Auth: Bearer JWT determines
-        user_id (sub or user_id).'
-      parameters:
-      - description: Search request
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/handlers.memorySearchPayload'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/memory.SearchResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Search memories
-      tags:
-      - memory
-  /bots/{bot_id}/memory/update:
-    post:
-      description: 'Update a memory by ID via memory. Auth: Bearer JWT determines
-        user_id (sub or user_id).'
-      parameters:
-      - description: Update request
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/memory.UpdateRequest'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/memory.MemoryItem'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Update memory
-      tags:
-      - memory
   /bots/{bot_id}/schedule:
     get:
       description: List schedules for current user
@@ -3526,7 +2893,7 @@ paths:
       summary: Send message via bot channel
       tags:
       - bots
-  /bots/{id}/channel/{platform}/send_session:
+  /bots/{id}/channel/{platform}/send_chat:
     post:
       description: Send a message using a session-scoped token (reply only)
       parameters:
@@ -4343,7 +3710,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/users.ListUsersResponse'
+            $ref: '#/definitions/accounts.ListAccountsResponse'
         "400":
           description: Bad Request
           schema:
@@ -4367,12 +3734,12 @@ paths:
         name: payload
         required: true
         schema:
-          $ref: '#/definitions/users.CreateUserRequest'
+          $ref: '#/definitions/accounts.CreateAccountRequest'
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/users.User'
+            $ref: '#/definitions/accounts.Account'
         "400":
           description: Bad Request
           schema:
@@ -4401,7 +3768,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/users.User'
+            $ref: '#/definitions/accounts.Account'
         "400":
           description: Bad Request
           schema:
@@ -4434,12 +3801,12 @@ paths:
         name: payload
         required: true
         schema:
-          $ref: '#/definitions/users.UpdateUserRequest'
+          $ref: '#/definitions/accounts.UpdateAccountRequest'
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/users.User'
+            $ref: '#/definitions/accounts.Account'
         "400":
           description: Bad Request
           schema:
@@ -4473,7 +3840,7 @@ paths:
         name: payload
         required: true
         schema:
-          $ref: '#/definitions/users.ResetPasswordRequest'
+          $ref: '#/definitions/accounts.ResetPasswordRequest'
       responses:
         "204":
           description: No Content
@@ -4503,7 +3870,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/users.User'
+            $ref: '#/definitions/accounts.Account'
         "400":
           description: Bad Request
           schema:
@@ -4523,12 +3890,12 @@ paths:
         name: payload
         required: true
         schema:
-          $ref: '#/definitions/users.UpdateProfileRequest'
+          $ref: '#/definitions/accounts.UpdateProfileRequest'
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/users.User'
+            $ref: '#/definitions/accounts.Account'
         "400":
           description: Bad Request
           schema:
@@ -4553,7 +3920,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/channel.ChannelUserBinding'
+            $ref: '#/definitions/channel.ChannelIdentityBinding'
         "400":
           description: Bad Request
           schema:
@@ -4582,12 +3949,12 @@ paths:
         name: payload
         required: true
         schema:
-          $ref: '#/definitions/channel.UpsertUserConfigRequest'
+          $ref: '#/definitions/channel.UpsertChannelIdentityConfigRequest'
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/channel.ChannelUserBinding'
+            $ref: '#/definitions/channel.ChannelIdentityBinding'
         "400":
           description: Bad Request
           schema:
@@ -4599,6 +3966,29 @@ paths:
       summary: Update channel user config
       tags:
       - channel
+  /users/me/identities:
+    get:
+      description: List all channel identities linked to current user
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.listMyIdentitiesResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: List current user's channel identities
+      tags:
+      - users
   /users/me/password:
     put:
       description: Update current user password with current password check
@@ -4608,7 +3998,7 @@ paths:
         name: payload
         required: true
         schema:
-          $ref: '#/definitions/users.UpdatePasswordRequest'
+          $ref: '#/definitions/accounts.UpdatePasswordRequest'
       responses:
         "204":
           description: No Content

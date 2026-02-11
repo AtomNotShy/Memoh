@@ -50,21 +50,21 @@ func (n *NullableInt) UnmarshalJSON(data []byte) error {
 }
 
 type CreateRequest struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Pattern     string `json:"pattern"`
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
+	Pattern     string      `json:"pattern"`
 	MaxCalls    NullableInt `json:"max_calls,omitempty"`
-	Command     string `json:"command"`
-	Enabled     *bool  `json:"enabled,omitempty"`
+	Command     string      `json:"command"`
+	Enabled     *bool       `json:"enabled,omitempty"`
 }
 
 type UpdateRequest struct {
-	Name        *string `json:"name,omitempty"`
-	Description *string `json:"description,omitempty"`
-	Pattern     *string `json:"pattern,omitempty"`
+	Name        *string     `json:"name,omitempty"`
+	Description *string     `json:"description,omitempty"`
+	Pattern     *string     `json:"pattern,omitempty"`
 	MaxCalls    NullableInt `json:"max_calls,omitempty"`
-	Command     *string `json:"command,omitempty"`
-	Enabled     *bool   `json:"enabled,omitempty"`
+	Command     *string     `json:"command,omitempty"`
+	Enabled     *bool       `json:"enabled,omitempty"`
 }
 
 type ListResponse struct {

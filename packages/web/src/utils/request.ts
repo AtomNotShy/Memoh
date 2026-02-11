@@ -55,6 +55,7 @@ export async function fetchApi<T = unknown>(
   })
 
   if (response.status === 401) {
+    localStorage.removeItem('token')
     router.replace({ name: 'Login' })
     throw new ApiError(response.status, response.statusText)
   }

@@ -26,12 +26,12 @@ const (
 )
 
 type Request struct {
-	Type       string
-	Provider   string
-	Model      string
-	Dimensions int
-	Input      Input
-	UserID     string
+	Type              string
+	Provider          string
+	Model             string
+	Dimensions        int
+	Input             Input
+	ChannelIdentityID string
 }
 
 type Input struct {
@@ -180,8 +180,8 @@ func (r *Resolver) selectEmbeddingModel(ctx context.Context, req Request) (model
 	}
 
 	// If no model specified and no provider specified, try to get per-user embedding model.
-	if req.Model == "" && req.Provider == "" && strings.TrimSpace(req.UserID) != "" {
-		modelID, err := r.loadUserEmbeddingModelID(ctx, req.UserID)
+	if req.Model == "" && req.Provider == "" && strings.TrimSpace(req.ChannelIdentityID) != "" {
+		modelID, err := r.loadChannelIdentityEmbeddingModelID(ctx, req.ChannelIdentityID)
 		if err != nil {
 			return models.GetResponse{}, err
 		}
@@ -257,15 +257,15 @@ func (r *Resolver) fetchProvider(ctx context.Context, providerID string) (sqlc.L
 	return r.queries.GetLlmProviderByID(ctx, pgID)
 }
 
-func (r *Resolver) loadUserEmbeddingModelID(ctx context.Context, userID string) (string, error) {
+func (r *Resolver) loadChannelIdentityEmbeddingModelID(ctx context.Context, channelIdentityID string) (string, error) {
 	if r.queries == nil {
 		return "", nil
 	}
-	pgUserID, err := parseUUID(userID)
+	pgChannelIdentityID, err := parseUUID(channelIdentityID)
 	if err != nil {
 		return "", err
 	}
-	row, err := r.queries.GetSettingsByUserID(ctx, pgUserID)
+	row, err := r.queries.GetSettingsByUserID(ctx, pgChannelIdentityID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", nil

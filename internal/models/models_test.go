@@ -13,7 +13,7 @@ import (
 func ExampleService_Create() {
 	// Example usage - in real code, you would initialize with actual database connection
 	// service := models.NewService(queries)
-	
+
 	// ctx := context.Background()
 	// req := models.AddRequest{
 	// 	ModelID:    "gpt-4",
@@ -21,7 +21,7 @@ func ExampleService_Create() {
 	// 	LlmProviderID: "11111111-1111-1111-1111-111111111111",
 	// 	Type:       models.ModelTypeChat,
 	// }
-	
+
 	// resp, err := service.Create(ctx, req)
 	// if err != nil {
 	// 	// handle error
@@ -32,7 +32,7 @@ func ExampleService_Create() {
 func ExampleService_GetByModelID() {
 	// Example usage
 	// service := models.NewService(queries)
-	
+
 	// ctx := context.Background()
 	// resp, err := service.GetByModelID(ctx, "gpt-4")
 	// if err != nil {
@@ -44,7 +44,7 @@ func ExampleService_GetByModelID() {
 func ExampleService_List() {
 	// Example usage
 	// service := models.NewService(queries)
-	
+
 	// ctx := context.Background()
 	// models, err := service.List(ctx)
 	// if err != nil {
@@ -58,7 +58,7 @@ func ExampleService_List() {
 func ExampleService_ListByType() {
 	// Example usage
 	// service := models.NewService(queries)
-	
+
 	// ctx := context.Background()
 	// chatModels, err := service.ListByType(ctx, models.ModelTypeChat)
 	// if err != nil {
@@ -70,7 +70,7 @@ func ExampleService_ListByType() {
 func ExampleService_UpdateByModelID() {
 	// Example usage
 	// service := models.NewService(queries)
-	
+
 	// ctx := context.Background()
 	// req := models.UpdateRequest{
 	// 	ModelID:    "gpt-4",
@@ -78,7 +78,7 @@ func ExampleService_UpdateByModelID() {
 	// 	LlmProviderID: "11111111-1111-1111-1111-111111111111",
 	// 	Type:       models.ModelTypeChat,
 	// }
-	
+
 	// resp, err := service.UpdateByModelID(ctx, "gpt-4", req)
 	// if err != nil {
 	// 	// handle error
@@ -89,7 +89,7 @@ func ExampleService_UpdateByModelID() {
 func ExampleService_DeleteByModelID() {
 	// Example usage
 	// service := models.NewService(queries)
-	
+
 	// ctx := context.Background()
 	// err := service.DeleteByModelID(ctx, "gpt-4")
 	// if err != nil {
@@ -208,7 +208,7 @@ func TestModelTypes(t *testing.T) {
 // 	}
 //
 // 	ctx := context.Background()
-// 	
+//
 // 	// Setup database connection
 // 	pool, err := db.Open(ctx, config.PostgresConfig{
 // 		Host:     "localhost",
@@ -271,4 +271,3 @@ func TestModelTypes(t *testing.T) {
 // 	err = service.DeleteByModelID(ctx, "test-gpt-4")
 // 	require.NoError(t, err)
 // }
-

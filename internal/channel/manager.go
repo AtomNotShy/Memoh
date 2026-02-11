@@ -18,19 +18,12 @@ type ConfigLister interface {
 // ConfigResolver resolves effective configs and user bindings. Used for outbound sending.
 type ConfigResolver interface {
 	ResolveEffectiveConfig(ctx context.Context, botID string, channelType ChannelType) (ChannelConfig, error)
-	GetUserConfig(ctx context.Context, actorUserID string, channelType ChannelType) (ChannelUserBinding, error)
+	GetChannelIdentityConfig(ctx context.Context, channelIdentityID string, channelType ChannelType) (ChannelIdentityBinding, error)
 }
 
-// BindingStore resolves user-channel bindings. Used by identity resolution.
+// BindingStore resolves channel-identity bindings. Used by identity resolution.
 type BindingStore interface {
-	ResolveUserBinding(ctx context.Context, channelType ChannelType, criteria BindingCriteria) (string, error)
-}
-
-// SessionStore manages channel session lifecycle. Used by identity resolution.
-type SessionStore interface {
-	GetChannelSession(ctx context.Context, sessionID string) (ChannelSession, error)
-	UpsertChannelSession(ctx context.Context, sessionID string, botID string, channelConfigID string, userID string, contactID string, platform string, replyTarget string, threadID string, metadata map[string]any) error
-	ListSessionsByBotPlatform(ctx context.Context, botID string, platform string) ([]ChannelSession, error)
+	ResolveChannelIdentityBinding(ctx context.Context, channelType ChannelType, criteria BindingCriteria) (string, error)
 }
 
 // ConfigStore is the full persistence interface. Components should depend on smaller
@@ -39,8 +32,7 @@ type ConfigStore interface {
 	ConfigLister
 	ConfigResolver
 	BindingStore
-	SessionStore
-	UpsertUserConfig(ctx context.Context, actorUserID string, channelType ChannelType, req UpsertUserConfigRequest) (ChannelUserBinding, error)
+	UpsertChannelIdentityConfig(ctx context.Context, channelIdentityID string, channelType ChannelType, req UpsertChannelIdentityConfigRequest) (ChannelIdentityBinding, error)
 }
 
 // Middleware wraps an InboundHandler to add cross-cutting behavior.
@@ -187,14 +179,14 @@ func (m *Manager) Send(ctx context.Context, botID string, channelType ChannelTyp
 	}
 	target := strings.TrimSpace(req.Target)
 	if target == "" {
-		targetUserID := strings.TrimSpace(req.UserID)
-		if targetUserID == "" {
+		targetChannelIdentityID := strings.TrimSpace(req.ChannelIdentityID)
+		if targetChannelIdentityID == "" {
 			return fmt.Errorf("target or user_id is required")
 		}
-		userCfg, err := m.service.GetUserConfig(ctx, targetUserID, channelType)
+		userCfg, err := m.service.GetChannelIdentityConfig(ctx, targetChannelIdentityID, channelType)
 		if err != nil {
 			if m.logger != nil {
-				m.logger.Warn("channel binding missing", slog.String("channel", channelType.String()), slog.String("user_id", targetUserID))
+				m.logger.Warn("channel binding missing", slog.String("channel", channelType.String()), slog.String("channel_identity_id", targetChannelIdentityID))
 			}
 			return fmt.Errorf("channel binding required")
 		}

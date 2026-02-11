@@ -58,12 +58,21 @@
     </div>
 
     <!-- Allow Guest -->
-    <div class="flex items-center justify-between">
-      <Label>{{ $t('bots.settings.allowGuest') }}</Label>
-      <Switch
-        :model-value="form.allow_guest"
-        @update:model-value="(val) => form.allow_guest = !!val"
-      />
+    <div class="space-y-2">
+      <div class="flex items-center justify-between">
+        <Label>{{ $t('bots.settings.allowGuest') }}</Label>
+        <Switch
+          :model-value="form.allow_guest"
+          :disabled="isPersonalBot"
+          @update:model-value="(val) => form.allow_guest = !!val"
+        />
+      </div>
+      <p
+        v-if="isPersonalBot"
+        class="text-xs text-muted-foreground"
+      >
+        {{ $t('bots.settings.allowGuestPersonalHint') }}
+      </p>
     </div>
 
     <Separator />
@@ -101,11 +110,13 @@ import type { Ref } from 'vue'
 
 const props = defineProps<{
   botId: string
+  botType: string
 }>()
 
 const { t } = useI18n()
 
 const botIdRef = computed(() => props.botId) as Ref<string>
+const isPersonalBot = computed(() => props.botType.trim().toLowerCase() === 'personal')
 
 // ---- Data ----
 const { data: settings } = useBotSettings(botIdRef)
@@ -135,6 +146,15 @@ watch(settings, (val) => {
     form.max_context_load_time = val.max_context_load_time ?? 0
     form.language = val.language ?? ''
     form.allow_guest = val.allow_guest ?? false
+    if (isPersonalBot.value) {
+      form.allow_guest = false
+    }
+  }
+}, { immediate: true })
+
+watch(isPersonalBot, (value) => {
+  if (value) {
+    form.allow_guest = false
   }
 }, { immediate: true })
 

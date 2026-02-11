@@ -11,45 +11,49 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const countUsers = `-- name: CountUsers :one
-SELECT COUNT(*)::bigint AS count FROM users
+const countAccounts = `-- name: CountAccounts :one
+SELECT COUNT(*)::bigint AS count
+FROM users
+WHERE username IS NOT NULL
+  AND password_hash IS NOT NULL
 `
 
-func (q *Queries) CountUsers(ctx context.Context) (int64, error) {
-	row := q.db.QueryRow(ctx, countUsers)
+func (q *Queries) CountAccounts(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countAccounts)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
 }
 
-const createUser = `-- name: CreateUser :one
-INSERT INTO users (username, email, password_hash, role, display_name, avatar_url, is_active, data_root)
-VALUES (
-  $1,
-  $2,
-  $3,
-  $4::user_role,
-  $5,
-  $6,
-  $7,
-  $8
-)
-RETURNING id, username, email, password_hash, role, display_name, avatar_url, is_active, data_root, created_at, updated_at, last_login_at
+const createAccount = `-- name: CreateAccount :one
+UPDATE users
+SET username = $1,
+    email = $2,
+    password_hash = $3,
+    role = $4::user_role,
+    display_name = $5,
+    avatar_url = $6,
+    is_active = $7,
+    data_root = $8,
+    updated_at = now()
+WHERE id = $9
+RETURNING id, username, email, password_hash, role, display_name, avatar_url, data_root, last_login_at, chat_model_id, memory_model_id, embedding_model_id, max_context_load_time, language, is_active, metadata, created_at, updated_at
 `
 
-type CreateUserParams struct {
-	Username     string      `json:"username"`
+type CreateAccountParams struct {
+	Username     pgtype.Text `json:"username"`
 	Email        pgtype.Text `json:"email"`
-	PasswordHash string      `json:"password_hash"`
+	PasswordHash pgtype.Text `json:"password_hash"`
 	Role         string      `json:"role"`
 	DisplayName  pgtype.Text `json:"display_name"`
 	AvatarUrl    pgtype.Text `json:"avatar_url"`
 	IsActive     bool        `json:"is_active"`
 	DataRoot     pgtype.Text `json:"data_root"`
+	UserID       pgtype.UUID `json:"user_id"`
 }
 
-func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
-	row := q.db.QueryRow(ctx, createUser,
+func (q *Queries) CreateAccount(ctx context.Context, arg CreateAccountParams) (User, error) {
+	row := q.db.QueryRow(ctx, createAccount,
 		arg.Username,
 		arg.Email,
 		arg.PasswordHash,
@@ -58,6 +62,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		arg.AvatarUrl,
 		arg.IsActive,
 		arg.DataRoot,
+		arg.UserID,
 	)
 	var i User
 	err := row.Scan(
@@ -68,55 +73,34 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.Role,
 		&i.DisplayName,
 		&i.AvatarUrl,
-		&i.IsActive,
 		&i.DataRoot,
+		&i.LastLoginAt,
+		&i.ChatModelID,
+		&i.MemoryModelID,
+		&i.EmbeddingModelID,
+		&i.MaxContextLoadTime,
+		&i.Language,
+		&i.IsActive,
+		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.LastLoginAt,
 	)
 	return i, err
 }
 
-const createUserWithID = `-- name: CreateUserWithID :one
-INSERT INTO users (id, username, email, password_hash, role, display_name, avatar_url, is_active, data_root)
-VALUES (
-  $1,
-  $2,
-  $3,
-  $4,
-  $5::user_role,
-  $6,
-  $7,
-  $8,
-  $9
-)
-RETURNING id, username, email, password_hash, role, display_name, avatar_url, is_active, data_root, created_at, updated_at, last_login_at
+const createUser = `-- name: CreateUser :one
+INSERT INTO users (is_active, metadata)
+VALUES ($1, $2)
+RETURNING id, username, email, password_hash, role, display_name, avatar_url, data_root, last_login_at, chat_model_id, memory_model_id, embedding_model_id, max_context_load_time, language, is_active, metadata, created_at, updated_at
 `
 
-type CreateUserWithIDParams struct {
-	ID           pgtype.UUID `json:"id"`
-	Username     string      `json:"username"`
-	Email        pgtype.Text `json:"email"`
-	PasswordHash string      `json:"password_hash"`
-	Role         string      `json:"role"`
-	DisplayName  pgtype.Text `json:"display_name"`
-	AvatarUrl    pgtype.Text `json:"avatar_url"`
-	IsActive     bool        `json:"is_active"`
-	DataRoot     pgtype.Text `json:"data_root"`
+type CreateUserParams struct {
+	IsActive bool   `json:"is_active"`
+	Metadata []byte `json:"metadata"`
 }
 
-func (q *Queries) CreateUserWithID(ctx context.Context, arg CreateUserWithIDParams) (User, error) {
-	row := q.db.QueryRow(ctx, createUserWithID,
-		arg.ID,
-		arg.Username,
-		arg.Email,
-		arg.PasswordHash,
-		arg.Role,
-		arg.DisplayName,
-		arg.AvatarUrl,
-		arg.IsActive,
-		arg.DataRoot,
-	)
+func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
+	row := q.db.QueryRow(ctx, createUser, arg.IsActive, arg.Metadata)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -126,17 +110,115 @@ func (q *Queries) CreateUserWithID(ctx context.Context, arg CreateUserWithIDPara
 		&i.Role,
 		&i.DisplayName,
 		&i.AvatarUrl,
-		&i.IsActive,
 		&i.DataRoot,
+		&i.LastLoginAt,
+		&i.ChatModelID,
+		&i.MemoryModelID,
+		&i.EmbeddingModelID,
+		&i.MaxContextLoadTime,
+		&i.Language,
+		&i.IsActive,
+		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getAccountByIdentity = `-- name: GetAccountByIdentity :one
+SELECT id, username, email, password_hash, role, display_name, avatar_url, data_root, last_login_at, chat_model_id, memory_model_id, embedding_model_id, max_context_load_time, language, is_active, metadata, created_at, updated_at FROM users WHERE username = $1 OR email = $1
+`
+
+func (q *Queries) GetAccountByIdentity(ctx context.Context, identity pgtype.Text) (User, error) {
+	row := q.db.QueryRow(ctx, getAccountByIdentity, identity)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Role,
+		&i.DisplayName,
+		&i.AvatarUrl,
+		&i.DataRoot,
 		&i.LastLoginAt,
+		&i.ChatModelID,
+		&i.MemoryModelID,
+		&i.EmbeddingModelID,
+		&i.MaxContextLoadTime,
+		&i.Language,
+		&i.IsActive,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getAccountByUserID = `-- name: GetAccountByUserID :one
+SELECT id, username, email, password_hash, role, display_name, avatar_url, data_root, last_login_at, chat_model_id, memory_model_id, embedding_model_id, max_context_load_time, language, is_active, metadata, created_at, updated_at FROM users WHERE id = $1
+`
+
+func (q *Queries) GetAccountByUserID(ctx context.Context, userID pgtype.UUID) (User, error) {
+	row := q.db.QueryRow(ctx, getAccountByUserID, userID)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Role,
+		&i.DisplayName,
+		&i.AvatarUrl,
+		&i.DataRoot,
+		&i.LastLoginAt,
+		&i.ChatModelID,
+		&i.MemoryModelID,
+		&i.EmbeddingModelID,
+		&i.MaxContextLoadTime,
+		&i.Language,
+		&i.IsActive,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getAccountByUsername = `-- name: GetAccountByUsername :one
+SELECT id, username, email, password_hash, role, display_name, avatar_url, data_root, last_login_at, chat_model_id, memory_model_id, embedding_model_id, max_context_load_time, language, is_active, metadata, created_at, updated_at FROM users WHERE username = $1
+`
+
+func (q *Queries) GetAccountByUsername(ctx context.Context, username pgtype.Text) (User, error) {
+	row := q.db.QueryRow(ctx, getAccountByUsername, username)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Role,
+		&i.DisplayName,
+		&i.AvatarUrl,
+		&i.DataRoot,
+		&i.LastLoginAt,
+		&i.ChatModelID,
+		&i.MemoryModelID,
+		&i.EmbeddingModelID,
+		&i.MaxContextLoadTime,
+		&i.Language,
+		&i.IsActive,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, email, password_hash, role, display_name, avatar_url, is_active, data_root, created_at, updated_at, last_login_at FROM users WHERE id = $1
+SELECT id, username, email, password_hash, role, display_name, avatar_url, data_root, last_login_at, chat_model_id, memory_model_id, embedding_model_id, max_context_load_time, language, is_active, metadata, created_at, updated_at
+FROM users
+WHERE id = $1
 `
 
 func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (User, error) {
@@ -150,70 +232,29 @@ func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (User, error)
 		&i.Role,
 		&i.DisplayName,
 		&i.AvatarUrl,
-		&i.IsActive,
 		&i.DataRoot,
+		&i.LastLoginAt,
+		&i.ChatModelID,
+		&i.MemoryModelID,
+		&i.EmbeddingModelID,
+		&i.MaxContextLoadTime,
+		&i.Language,
+		&i.IsActive,
+		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.LastLoginAt,
 	)
 	return i, err
 }
 
-const getUserByIdentity = `-- name: GetUserByIdentity :one
-SELECT id, username, email, password_hash, role, display_name, avatar_url, is_active, data_root, created_at, updated_at, last_login_at FROM users WHERE username = $1 OR email = $1
-`
-
-func (q *Queries) GetUserByIdentity(ctx context.Context, identity string) (User, error) {
-	row := q.db.QueryRow(ctx, getUserByIdentity, identity)
-	var i User
-	err := row.Scan(
-		&i.ID,
-		&i.Username,
-		&i.Email,
-		&i.PasswordHash,
-		&i.Role,
-		&i.DisplayName,
-		&i.AvatarUrl,
-		&i.IsActive,
-		&i.DataRoot,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.LastLoginAt,
-	)
-	return i, err
-}
-
-const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, email, password_hash, role, display_name, avatar_url, is_active, data_root, created_at, updated_at, last_login_at FROM users WHERE username = $1
-`
-
-func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User, error) {
-	row := q.db.QueryRow(ctx, getUserByUsername, username)
-	var i User
-	err := row.Scan(
-		&i.ID,
-		&i.Username,
-		&i.Email,
-		&i.PasswordHash,
-		&i.Role,
-		&i.DisplayName,
-		&i.AvatarUrl,
-		&i.IsActive,
-		&i.DataRoot,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.LastLoginAt,
-	)
-	return i, err
-}
-
-const listUsers = `-- name: ListUsers :many
-SELECT id, username, email, password_hash, role, display_name, avatar_url, is_active, data_root, created_at, updated_at, last_login_at FROM users
+const listAccounts = `-- name: ListAccounts :many
+SELECT id, username, email, password_hash, role, display_name, avatar_url, data_root, last_login_at, chat_model_id, memory_model_id, embedding_model_id, max_context_load_time, language, is_active, metadata, created_at, updated_at FROM users
+WHERE username IS NOT NULL
 ORDER BY created_at DESC
 `
 
-func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
-	rows, err := q.db.Query(ctx, listUsers)
+func (q *Queries) ListAccounts(ctx context.Context) ([]User, error) {
+	rows, err := q.db.Query(ctx, listAccounts)
 	if err != nil {
 		return nil, err
 	}
@@ -229,11 +270,17 @@ func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
 			&i.Role,
 			&i.DisplayName,
 			&i.AvatarUrl,
-			&i.IsActive,
 			&i.DataRoot,
+			&i.LastLoginAt,
+			&i.ChatModelID,
+			&i.MemoryModelID,
+			&i.EmbeddingModelID,
+			&i.MaxContextLoadTime,
+			&i.Language,
+			&i.IsActive,
+			&i.Metadata,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.LastLoginAt,
 		); err != nil {
 			return nil, err
 		}
@@ -245,7 +292,7 @@ func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
 	return items, nil
 }
 
-const updateUserAdmin = `-- name: UpdateUserAdmin :one
+const updateAccountAdmin = `-- name: UpdateAccountAdmin :one
 UPDATE users
 SET role = $1::user_role,
     display_name = $2,
@@ -253,24 +300,24 @@ SET role = $1::user_role,
     is_active = $4,
     updated_at = now()
 WHERE id = $5
-RETURNING id, username, email, password_hash, role, display_name, avatar_url, is_active, data_root, created_at, updated_at, last_login_at
+RETURNING id, username, email, password_hash, role, display_name, avatar_url, data_root, last_login_at, chat_model_id, memory_model_id, embedding_model_id, max_context_load_time, language, is_active, metadata, created_at, updated_at
 `
 
-type UpdateUserAdminParams struct {
+type UpdateAccountAdminParams struct {
 	Role        string      `json:"role"`
 	DisplayName pgtype.Text `json:"display_name"`
 	AvatarUrl   pgtype.Text `json:"avatar_url"`
 	IsActive    bool        `json:"is_active"`
-	ID          pgtype.UUID `json:"id"`
+	UserID      pgtype.UUID `json:"user_id"`
 }
 
-func (q *Queries) UpdateUserAdmin(ctx context.Context, arg UpdateUserAdminParams) (User, error) {
-	row := q.db.QueryRow(ctx, updateUserAdmin,
+func (q *Queries) UpdateAccountAdmin(ctx context.Context, arg UpdateAccountAdminParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateAccountAdmin,
 		arg.Role,
 		arg.DisplayName,
 		arg.AvatarUrl,
 		arg.IsActive,
-		arg.ID,
+		arg.UserID,
 	)
 	var i User
 	err := row.Scan(
@@ -281,25 +328,31 @@ func (q *Queries) UpdateUserAdmin(ctx context.Context, arg UpdateUserAdminParams
 		&i.Role,
 		&i.DisplayName,
 		&i.AvatarUrl,
-		&i.IsActive,
 		&i.DataRoot,
+		&i.LastLoginAt,
+		&i.ChatModelID,
+		&i.MemoryModelID,
+		&i.EmbeddingModelID,
+		&i.MaxContextLoadTime,
+		&i.Language,
+		&i.IsActive,
+		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.LastLoginAt,
 	)
 	return i, err
 }
 
-const updateUserLastLogin = `-- name: UpdateUserLastLogin :one
+const updateAccountLastLogin = `-- name: UpdateAccountLastLogin :one
 UPDATE users
 SET last_login_at = now(),
     updated_at = now()
 WHERE id = $1
-RETURNING id, username, email, password_hash, role, display_name, avatar_url, is_active, data_root, created_at, updated_at, last_login_at
+RETURNING id, username, email, password_hash, role, display_name, avatar_url, data_root, last_login_at, chat_model_id, memory_model_id, embedding_model_id, max_context_load_time, language, is_active, metadata, created_at, updated_at
 `
 
-func (q *Queries) UpdateUserLastLogin(ctx context.Context, id pgtype.UUID) (User, error) {
-	row := q.db.QueryRow(ctx, updateUserLastLogin, id)
+func (q *Queries) UpdateAccountLastLogin(ctx context.Context, id pgtype.UUID) (User, error) {
+	row := q.db.QueryRow(ctx, updateAccountLastLogin, id)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -309,30 +362,36 @@ func (q *Queries) UpdateUserLastLogin(ctx context.Context, id pgtype.UUID) (User
 		&i.Role,
 		&i.DisplayName,
 		&i.AvatarUrl,
-		&i.IsActive,
 		&i.DataRoot,
+		&i.LastLoginAt,
+		&i.ChatModelID,
+		&i.MemoryModelID,
+		&i.EmbeddingModelID,
+		&i.MaxContextLoadTime,
+		&i.Language,
+		&i.IsActive,
+		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.LastLoginAt,
 	)
 	return i, err
 }
 
-const updateUserPassword = `-- name: UpdateUserPassword :one
+const updateAccountPassword = `-- name: UpdateAccountPassword :one
 UPDATE users
 SET password_hash = $2,
     updated_at = now()
 WHERE id = $1
-RETURNING id, username, email, password_hash, role, display_name, avatar_url, is_active, data_root, created_at, updated_at, last_login_at
+RETURNING id, username, email, password_hash, role, display_name, avatar_url, data_root, last_login_at, chat_model_id, memory_model_id, embedding_model_id, max_context_load_time, language, is_active, metadata, created_at, updated_at
 `
 
-type UpdateUserPasswordParams struct {
+type UpdateAccountPasswordParams struct {
 	ID           pgtype.UUID `json:"id"`
-	PasswordHash string      `json:"password_hash"`
+	PasswordHash pgtype.Text `json:"password_hash"`
 }
 
-func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) (User, error) {
-	row := q.db.QueryRow(ctx, updateUserPassword, arg.ID, arg.PasswordHash)
+func (q *Queries) UpdateAccountPassword(ctx context.Context, arg UpdateAccountPasswordParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateAccountPassword, arg.ID, arg.PasswordHash)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -342,34 +401,40 @@ func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPassword
 		&i.Role,
 		&i.DisplayName,
 		&i.AvatarUrl,
-		&i.IsActive,
 		&i.DataRoot,
+		&i.LastLoginAt,
+		&i.ChatModelID,
+		&i.MemoryModelID,
+		&i.EmbeddingModelID,
+		&i.MaxContextLoadTime,
+		&i.Language,
+		&i.IsActive,
+		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.LastLoginAt,
 	)
 	return i, err
 }
 
-const updateUserProfile = `-- name: UpdateUserProfile :one
+const updateAccountProfile = `-- name: UpdateAccountProfile :one
 UPDATE users
 SET display_name = $2,
     avatar_url = $3,
     is_active = $4,
     updated_at = now()
 WHERE id = $1
-RETURNING id, username, email, password_hash, role, display_name, avatar_url, is_active, data_root, created_at, updated_at, last_login_at
+RETURNING id, username, email, password_hash, role, display_name, avatar_url, data_root, last_login_at, chat_model_id, memory_model_id, embedding_model_id, max_context_load_time, language, is_active, metadata, created_at, updated_at
 `
 
-type UpdateUserProfileParams struct {
+type UpdateAccountProfileParams struct {
 	ID          pgtype.UUID `json:"id"`
 	DisplayName pgtype.Text `json:"display_name"`
 	AvatarUrl   pgtype.Text `json:"avatar_url"`
 	IsActive    bool        `json:"is_active"`
 }
 
-func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) (User, error) {
-	row := q.db.QueryRow(ctx, updateUserProfile,
+func (q *Queries) UpdateAccountProfile(ctx context.Context, arg UpdateAccountProfileParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateAccountProfile,
 		arg.ID,
 		arg.DisplayName,
 		arg.AvatarUrl,
@@ -384,26 +449,73 @@ func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfilePa
 		&i.Role,
 		&i.DisplayName,
 		&i.AvatarUrl,
-		&i.IsActive,
 		&i.DataRoot,
+		&i.LastLoginAt,
+		&i.ChatModelID,
+		&i.MemoryModelID,
+		&i.EmbeddingModelID,
+		&i.MaxContextLoadTime,
+		&i.Language,
+		&i.IsActive,
+		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.LastLoginAt,
 	)
 	return i, err
 }
 
-const upsertUserByUsername = `-- name: UpsertUserByUsername :one
-INSERT INTO users (username, email, password_hash, role, display_name, avatar_url, is_active, data_root)
+const updateUserStatus = `-- name: UpdateUserStatus :one
+UPDATE users
+SET is_active = $2,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, username, email, password_hash, role, display_name, avatar_url, data_root, last_login_at, chat_model_id, memory_model_id, embedding_model_id, max_context_load_time, language, is_active, metadata, created_at, updated_at
+`
+
+type UpdateUserStatusParams struct {
+	ID       pgtype.UUID `json:"id"`
+	IsActive bool        `json:"is_active"`
+}
+
+func (q *Queries) UpdateUserStatus(ctx context.Context, arg UpdateUserStatusParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateUserStatus, arg.ID, arg.IsActive)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Role,
+		&i.DisplayName,
+		&i.AvatarUrl,
+		&i.DataRoot,
+		&i.LastLoginAt,
+		&i.ChatModelID,
+		&i.MemoryModelID,
+		&i.EmbeddingModelID,
+		&i.MaxContextLoadTime,
+		&i.Language,
+		&i.IsActive,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const upsertAccountByUsername = `-- name: UpsertAccountByUsername :one
+INSERT INTO users (id, username, email, password_hash, role, display_name, avatar_url, is_active, data_root, metadata)
 VALUES (
   $1,
   $2,
   $3,
-  $4::user_role,
-  $5,
+  $4,
+  $5::user_role,
   $6,
   $7,
-  $8
+  $8,
+  $9,
+  '{}'::jsonb
 )
 ON CONFLICT (username) DO UPDATE SET
   email = EXCLUDED.email,
@@ -414,13 +526,14 @@ ON CONFLICT (username) DO UPDATE SET
   is_active = EXCLUDED.is_active,
   data_root = EXCLUDED.data_root,
   updated_at = now()
-RETURNING id, username, email, password_hash, role, display_name, avatar_url, is_active, data_root, created_at, updated_at, last_login_at
+RETURNING id, username, email, password_hash, role, display_name, avatar_url, data_root, last_login_at, chat_model_id, memory_model_id, embedding_model_id, max_context_load_time, language, is_active, metadata, created_at, updated_at
 `
 
-type UpsertUserByUsernameParams struct {
-	Username     string      `json:"username"`
+type UpsertAccountByUsernameParams struct {
+	UserID       pgtype.UUID `json:"user_id"`
+	Username     pgtype.Text `json:"username"`
 	Email        pgtype.Text `json:"email"`
-	PasswordHash string      `json:"password_hash"`
+	PasswordHash pgtype.Text `json:"password_hash"`
 	Role         string      `json:"role"`
 	DisplayName  pgtype.Text `json:"display_name"`
 	AvatarUrl    pgtype.Text `json:"avatar_url"`
@@ -428,8 +541,9 @@ type UpsertUserByUsernameParams struct {
 	DataRoot     pgtype.Text `json:"data_root"`
 }
 
-func (q *Queries) UpsertUserByUsername(ctx context.Context, arg UpsertUserByUsernameParams) (User, error) {
-	row := q.db.QueryRow(ctx, upsertUserByUsername,
+func (q *Queries) UpsertAccountByUsername(ctx context.Context, arg UpsertAccountByUsernameParams) (User, error) {
+	row := q.db.QueryRow(ctx, upsertAccountByUsername,
+		arg.UserID,
 		arg.Username,
 		arg.Email,
 		arg.PasswordHash,
@@ -448,11 +562,17 @@ func (q *Queries) UpsertUserByUsername(ctx context.Context, arg UpsertUserByUser
 		&i.Role,
 		&i.DisplayName,
 		&i.AvatarUrl,
-		&i.IsActive,
 		&i.DataRoot,
+		&i.LastLoginAt,
+		&i.ChatModelID,
+		&i.MemoryModelID,
+		&i.EmbeddingModelID,
+		&i.MaxContextLoadTime,
+		&i.Language,
+		&i.IsActive,
+		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.LastLoginAt,
 	)
 	return i, err
 }

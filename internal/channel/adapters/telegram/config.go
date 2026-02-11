@@ -82,8 +82,8 @@ func matchBinding(raw map[string]any, criteria channel.BindingCriteria) bool {
 	if value := strings.TrimSpace(criteria.Attribute("username")); value != "" && strings.EqualFold(value, cfg.Username) {
 		return true
 	}
-	if criteria.ExternalID != "" {
-		if criteria.ExternalID == cfg.ChatID || criteria.ExternalID == cfg.UserID || strings.EqualFold(criteria.ExternalID, cfg.Username) {
+	if criteria.SubjectID != "" {
+		if criteria.SubjectID == cfg.ChatID || criteria.SubjectID == cfg.UserID || strings.EqualFold(criteria.SubjectID, cfg.Username) {
 			return true
 		}
 	}
