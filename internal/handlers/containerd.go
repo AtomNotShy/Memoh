@@ -244,24 +244,20 @@ func (h *ContainerdHandler) CreateContainer(c echo.Context) error {
 	if task, err := h.service.StartTask(ctx, containerID, &ctr.StartTaskOptions{
 		UseStdio: false,
 	}); err == nil {
-		if netErr := ctr.SetupNetwork(ctx, task, containerID); netErr == nil {
-			started = true
-			if h.queries != nil {
-				if pgBotID, parseErr := db.ParseUUID(botID); parseErr == nil {
-					if dbErr := h.queries.UpdateContainerStarted(c.Request().Context(), pgBotID); dbErr != nil {
-						h.logger.Error("failed to update container started status",
-							slog.String("bot_id", botID), slog.Any("error", dbErr))
-					}
-				}
-			}
-		} else {
-			if err := h.service.StopTask(ctx, containerID, &ctr.StopTaskOptions{Force: true}); err != nil {
-				h.logger.Warn("cleanup: stop task failed", slog.String("container_id", containerID), slog.Any("error", err))
-			}
-			h.logger.Error("mcp container network setup failed",
+		started = true
+		if netErr := ctr.SetupNetwork(ctx, task, containerID); netErr != nil {
+			h.logger.Warn("mcp container network setup failed, task kept running",
 				slog.String("container_id", containerID),
 				slog.Any("error", netErr),
 			)
+		}
+		if h.queries != nil {
+			if pgBotID, parseErr := db.ParseUUID(botID); parseErr == nil {
+				if dbErr := h.queries.UpdateContainerStarted(c.Request().Context(), pgBotID); dbErr != nil {
+					h.logger.Error("failed to update container started status",
+						slog.String("bot_id", botID), slog.Any("error", dbErr))
+				}
+			}
 		}
 	} else {
 		h.logger.Error("mcp container start failed",
@@ -318,11 +314,9 @@ func (h *ContainerdHandler) ensureContainerAndTask(ctx context.Context, containe
 	if err != nil {
 		return err
 	}
-	if err := ctr.SetupNetwork(ctx, task, containerID); err != nil {
-		if err := h.service.StopTask(ctx, containerID, &ctr.StopTaskOptions{Force: true}); err != nil {
-			h.logger.Warn("cleanup: stop task failed", slog.String("container_id", containerID), slog.Any("error", err))
-		}
-		return err
+	if netErr := ctr.SetupNetwork(ctx, task, containerID); netErr != nil {
+		h.logger.Warn("network setup failed, task kept running",
+			slog.String("container_id", containerID), slog.Any("error", netErr))
 	}
 	return nil
 }
@@ -761,24 +755,20 @@ func (h *ContainerdHandler) SetupBotContainer(ctx context.Context, botID string)
 	if task, err := h.service.StartTask(ctx, containerID, &ctr.StartTaskOptions{
 		UseStdio: false,
 	}); err == nil {
-		if netErr := ctr.SetupNetwork(ctx, task, containerID); netErr == nil {
-			if h.queries != nil {
-				if pgBotID, parseErr := db.ParseUUID(botID); parseErr == nil {
-					if dbErr := h.queries.UpdateContainerStarted(ctx, pgBotID); dbErr != nil {
-						h.logger.Error("setup bot container: failed to update container started status",
-							slog.String("bot_id", botID), slog.Any("error", dbErr))
-					}
-				}
-			}
-		} else {
-			if err := h.service.StopTask(ctx, containerID, &ctr.StopTaskOptions{Force: true}); err != nil {
-				h.logger.Warn("cleanup: stop task failed", slog.String("container_id", containerID), slog.Any("error", err))
-			}
-			h.logger.Error("setup bot container: network setup failed",
+		if netErr := ctr.SetupNetwork(ctx, task, containerID); netErr != nil {
+			h.logger.Warn("setup bot container: network setup failed, task kept running",
 				slog.String("bot_id", botID),
 				slog.String("container_id", containerID),
 				slog.Any("error", netErr),
 			)
+		}
+		if h.queries != nil {
+			if pgBotID, parseErr := db.ParseUUID(botID); parseErr == nil {
+				if dbErr := h.queries.UpdateContainerStarted(ctx, pgBotID); dbErr != nil {
+					h.logger.Error("setup bot container: failed to update container started status",
+						slog.String("bot_id", botID), slog.Any("error", dbErr))
+				}
+			}
 		}
 	} else {
 		h.logger.Error("setup bot container: task start failed",
