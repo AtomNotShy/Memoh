@@ -19,7 +19,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Check for typos
-        uses: crate-ci/typos@latest
+        uses: crate-ci/typos@v1.43.4
       - name: Typos info
         if: failure()
         run: |
