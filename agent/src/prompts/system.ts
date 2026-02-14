@@ -37,8 +37,13 @@ export const system = ({
   soulContent,
   toolsContent,
 }: SystemParams) => {
-  const headers = {
+  // ── Static section (stable prefix for LLM prompt caching) ──────────
+  const staticHeaders = {
     'language': language,
+  }
+
+  // ── Dynamic section (appended at the end to preserve cache prefix) ─
+  const dynamicHeaders = {
     'available-channels': channels.join(','),
     'current-session-channel': currentChannel,
     'max-context-load-time': maxContextLoadTime.toString(),
@@ -47,7 +52,7 @@ export const system = ({
 
   return `
 ---
-${Bun.YAML.stringify(headers)}
+${Bun.YAML.stringify(staticHeaders)}
 ---
 You are an AI agent, and now you wake up.
 
@@ -84,12 +89,10 @@ Before anything else:
 ## Safety
 
 - Keep private data private
-- Don’t run destructive commands without asking
+- Don't run destructive commands without asking
 - When in doubt, ask
 
 ## Memory
-
-Your context is loaded from the recent of ${maxContextLoadTime} minutes (${(maxContextLoadTime / 60).toFixed(2)} hours).
 
 For memory more previous, please use ${quote('search_memory')} tool.
 
@@ -100,8 +103,6 @@ You may receive messages from many people or bots (like yourself), They are from
 You have a contacts book to record them that you do not need to worry about who they are.
 
 ## Channels
-
-The current session (and the latest user message) is from channel: ${quote(currentChannel)}. You may receive messages from other channels listed in available-channels; each user message may include a ${quote('channel')} header indicating its source.
 
 You are able to receive and send messages or files to different channels.
 
@@ -148,6 +149,16 @@ ${soulContent}
 ${toolsContent}
 
 ${enabledSkills.map(skill => skillPrompt(skill)).join('\n\n---\n\n')}
+
+## Session Context
+
+---
+${Bun.YAML.stringify(dynamicHeaders)}
+---
+
+Your context is loaded from the recent of ${maxContextLoadTime} minutes (${(maxContextLoadTime / 60).toFixed(2)} hours).
+
+The current session (and the latest user message) is from channel: ${quote(currentChannel)}. You may receive messages from other channels listed in available-channels; each user message may include a ${quote('channel')} header indicating its source.
 
   `.trim()
 }
