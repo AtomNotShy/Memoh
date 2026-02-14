@@ -6,7 +6,6 @@ WORKDIR /build
 RUN npm install -g pnpm@10
 
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
-COPY config.toml ./
 
 COPY packages ./packages
 

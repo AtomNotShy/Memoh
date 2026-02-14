@@ -114,8 +114,8 @@ services:
       context: .
       dockerfile: docker/Dockerfile.web
       args:
-        - VITE_API_URL=http://localhost:8080
-        - VITE_AGENT_URL=http://localhost:8081
+        - VITE_API_URL=${VITE_API_URL:-http://localhost:8080}
+        - VITE_AGENT_URL=${VITE_AGENT_URL:-http://localhost:8081}
     container_name: memoh-web
     ports:
       - "8082:8082"

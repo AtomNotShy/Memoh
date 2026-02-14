@@ -6,8 +6,11 @@ import router from '@/router'
  * Call this once at app startup (main.ts).
  */
 export function setupApiClient() {
-  // Set base URL to match the Vite proxy
-  client.setConfig({ baseUrl: '/api' })
+  const apiBaseUrl = import.meta.env.VITE_API_URL?.trim() || '/api'
+  const agentBaseUrl = import.meta.env.VITE_AGENT_URL?.trim() || '/agent'
+  void agentBaseUrl
+
+  client.setConfig({ baseUrl: apiBaseUrl })
 
   // Add auth token to every request
   client.interceptors.request.use((request) => {
