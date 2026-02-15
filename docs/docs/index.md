@@ -1,22 +1,14 @@
 # Memoh Documentation
 
-Memoh is a multi-member, long-memory, containerized AI agent system.
+Memoh is a multi-member, structured long-memory, containerized AI agent system. Create your own AI bots, chat with them via Telegram, Lark (Feishu), Web, or CLI. Each bot runs in an isolated container with its own memory system — able to edit files, run commands, and access the network.
 
-## Documentation Sections
+## Documentation
 
-- [Getting Started](/getting-started.md)
-- [Core Concepts](/concepts/index.md)
+- **[Getting Started](/getting-started)** — What Memoh is, key features, and installation links.
+- **[Installation](/installation/docker)** — [Docker](/installation/docker) (recommended) and [config.toml](/installation/config-toml) reference.
+- **[CLI](/cli/)** — Command-line tool for bots, channels, providers, models, schedules, and chat.
+- **[Core Concepts](/concepts/)** — [Concepts overview](/concepts/) and [Accounts and linking](/concepts/identity-and-binding).
 
 ## For Contributors
 
-- [Terminology Rules](/style/terminology.md)
-
-## Current Focus
-
-The current documentation iteration focuses on account semantics:
-
-- Distinguishing system accounts and platform accounts
-- Explaining why account linking is account-scoped
-- Clarifying the relationship between account linking and bot access
-
-Note: "platform account" means the user's account on external platforms (for example, TG), not a Memoh account.
+- [Terminology Rules](/style/terminology) — Documentation style guide.

@@ -35,6 +35,60 @@ export default defineConfig({
           link: '/getting-started.md'
         },
         {
+          text: 'Installation',
+          items: [
+            {
+              text: 'Docker',
+              link: '/installation/docker.md'
+            },
+            {
+              text: 'config.toml',
+              link: '/installation/config-toml.md'
+            }
+          ]
+        },
+        {
+          text: 'CLI',
+          items: [
+            {
+              text: 'Overview',
+              link: '/cli/index.md'
+            },
+            {
+              text: 'authentication',
+              link: '/cli/auth.md'
+            },
+            {
+              text: 'config',
+              link: '/cli/config.md'
+            },
+            {
+              text: 'provider',
+              link: '/cli/provider.md'
+            },
+            {
+              text: 'model',
+              link: '/cli/model.md'
+            },
+            {
+              text: 'bot',
+              link: '/cli/bot.md'
+            },
+            {
+              text: 'channel',
+              link: '/cli/channel.md'
+            },
+            {
+              text: 'schedule',
+              link: '/cli/schedule.md'
+            },
+            {
+              text: 'chat',
+              link: '/cli/chat.md'
+            }
+          ]
+        },
+        {
           text: 'Core Concepts',
           items: [
             {
