@@ -614,6 +614,9 @@ async function fetchSingleCheck(id: string, key: string): Promise<BotCheck> {
   return data
 }
 
+const isEditingBotName = ref(false)
+const botNameDraft = ref('')
+
 // Replace breadcrumb bot id with display name when available.
 watch(bot, (val) => {
   if (!val) return
@@ -641,8 +644,6 @@ watch(() => route.query.tab, (val) => {
     activeTab.value = val as string
   }
 })
-const isEditingBotName = ref(false)
-const botNameDraft = ref('')
 const avatarDialogOpen = ref(false)
 const avatarUrlDraft = ref('')
 
