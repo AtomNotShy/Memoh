@@ -72,7 +72,7 @@ Memoh Bot 能区分并记忆多人与多 bot 的请求，在任意群聊中无�
 
 ### 开发
 
-开发环境配置请参阅 [CONTRIBUTING.md](.github/CONTRIBUTING.md)。
+开发环境配置请参阅 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## Star History
 
