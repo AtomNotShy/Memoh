@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS models (
   type TEXT NOT NULL DEFAULT 'chat',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  CONSTRAINT models_model_id_unique UNIQUE (model_id),
+  CONSTRAINT models_provider_model_id_unique UNIQUE (llm_provider_id, model_id),
   CONSTRAINT models_type_check CHECK (type IN ('chat', 'embedding')),
   CONSTRAINT models_dimensions_check CHECK (type != 'embedding' OR dimensions IS NOT NULL),
   CONSTRAINT models_client_type_check CHECK (client_type IS NULL OR client_type IN ('openai-responses', 'openai-completions', 'anthropic-messages', 'google-generative-ai')),
@@ -389,4 +389,3 @@ CREATE TABLE IF NOT EXISTS bot_history_message_assets (
 );
 
 CREATE INDEX IF NOT EXISTS idx_message_assets_message_id ON bot_history_message_assets(message_id);
-

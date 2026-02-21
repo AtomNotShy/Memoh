@@ -52,13 +52,13 @@
           </div>
           <button
             v-for="model in group.models"
-            :key="model.model_id"
+            :key="model.id || `${model.llm_provider_id}:${model.model_id}`"
             class="relative flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
-            :class="{ 'bg-accent': selected === model.model_id }"
-            @click="selectModel(model.model_id)"
+            :class="{ 'bg-accent': selected === model.id }"
+            @click="selectModel(model.id)"
           >
             <FontAwesomeIcon
-              v-if="selected === model.model_id"
+              v-if="selected === model.id"
               :icon="['fas', 'check']"
               class="size-3.5"
             />
@@ -145,11 +145,12 @@ const filteredGroups = computed(() => {
 // 显示选中模型的名称
 const displayLabel = computed(() => {
   if (!selected.value) return ''
-  const model = typeFilteredModels.value.find((m) => m.model_id === selected.value)
+  const model = typeFilteredModels.value.find((m) => m.id === selected.value)
   return model?.name || model?.model_id || selected.value
 })
 
-function selectModel(modelId: string) {
+function selectModel(modelId?: string) {
+  if (!modelId) return
   selected.value = modelId
   open.value = false
 }

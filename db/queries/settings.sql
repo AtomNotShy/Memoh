@@ -5,9 +5,9 @@ SELECT
   bots.max_context_tokens,
   bots.language,
   bots.allow_guest,
-  chat_models.model_id AS chat_model_id,
-  memory_models.model_id AS memory_model_id,
-  embedding_models.model_id AS embedding_model_id,
+  chat_models.id AS chat_model_id,
+  memory_models.id AS memory_model_id,
+  embedding_models.id AS embedding_model_id,
   search_providers.id AS search_provider_id
 FROM bots
 LEFT JOIN models AS chat_models ON chat_models.id = bots.chat_model_id
@@ -37,9 +37,9 @@ SELECT
   updated.max_context_tokens,
   updated.language,
   updated.allow_guest,
-  chat_models.model_id AS chat_model_id,
-  memory_models.model_id AS memory_model_id,
-  embedding_models.model_id AS embedding_model_id,
+  chat_models.id AS chat_model_id,
+  memory_models.id AS memory_model_id,
+  embedding_models.id AS embedding_model_id,
   search_providers.id AS search_provider_id
 FROM updated
 LEFT JOIN models AS chat_models ON chat_models.id = updated.chat_model_id

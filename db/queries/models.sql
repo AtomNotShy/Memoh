@@ -54,6 +54,11 @@ SELECT * FROM models WHERE id = sqlc.arg(id);
 -- name: GetModelByModelID :one
 SELECT * FROM models WHERE model_id = sqlc.arg(model_id);
 
+-- name: ListModelsByModelID :many
+SELECT * FROM models
+WHERE model_id = sqlc.arg(model_id)
+ORDER BY created_at DESC;
+
 -- name: ListModels :many
 SELECT * FROM models
 ORDER BY created_at DESC;
@@ -82,6 +87,7 @@ ORDER BY created_at DESC;
 -- name: UpdateModel :one
 UPDATE models
 SET
+  model_id = sqlc.arg(model_id),
   name = sqlc.arg(name),
   llm_provider_id = sqlc.arg(llm_provider_id),
   client_type = sqlc.narg(client_type),

@@ -718,6 +718,7 @@ export type ModelsCountResponse = {
 export type ModelsGetResponse = {
     client_type?: ModelsClientType;
     dimensions?: number;
+    id?: string;
     input_modalities?: Array<string>;
     llm_provider_id?: string;
     model_id?: string;

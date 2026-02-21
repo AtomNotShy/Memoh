@@ -419,6 +419,43 @@ func (q *Queries) ListModelsByClientType(ctx context.Context, clientType pgtype.
 	return items, nil
 }
 
+const listModelsByModelID = `-- name: ListModelsByModelID :many
+SELECT id, model_id, name, llm_provider_id, client_type, dimensions, input_modalities, type, created_at, updated_at FROM models
+WHERE model_id = $1
+ORDER BY created_at DESC
+`
+
+func (q *Queries) ListModelsByModelID(ctx context.Context, modelID string) ([]Model, error) {
+	rows, err := q.db.Query(ctx, listModelsByModelID, modelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Model
+	for rows.Next() {
+		var i Model
+		if err := rows.Scan(
+			&i.ID,
+			&i.ModelID,
+			&i.Name,
+			&i.LlmProviderID,
+			&i.ClientType,
+			&i.Dimensions,
+			&i.InputModalities,
+			&i.Type,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listModelsByProviderID = `-- name: ListModelsByProviderID :many
 SELECT id, model_id, name, llm_provider_id, client_type, dimensions, input_modalities, type, created_at, updated_at FROM models
 WHERE llm_provider_id = $1
@@ -580,18 +617,20 @@ func (q *Queries) UpdateLlmProvider(ctx context.Context, arg UpdateLlmProviderPa
 const updateModel = `-- name: UpdateModel :one
 UPDATE models
 SET
-  name = $1,
-  llm_provider_id = $2,
-  client_type = $3,
-  dimensions = $4,
-  input_modalities = $5,
-  type = $6,
+  model_id = $1,
+  name = $2,
+  llm_provider_id = $3,
+  client_type = $4,
+  dimensions = $5,
+  input_modalities = $6,
+  type = $7,
   updated_at = now()
-WHERE id = $7
+WHERE id = $8
 RETURNING id, model_id, name, llm_provider_id, client_type, dimensions, input_modalities, type, created_at, updated_at
 `
 
 type UpdateModelParams struct {
+	ModelID         string      `json:"model_id"`
 	Name            pgtype.Text `json:"name"`
 	LlmProviderID   pgtype.UUID `json:"llm_provider_id"`
 	ClientType      pgtype.Text `json:"client_type"`
@@ -603,6 +642,7 @@ type UpdateModelParams struct {
 
 func (q *Queries) UpdateModel(ctx context.Context, arg UpdateModelParams) (Model, error) {
 	row := q.db.QueryRow(ctx, updateModel,
+		arg.ModelID,
 		arg.Name,
 		arg.LlmProviderID,
 		arg.ClientType,

@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	attachmentpkg "github.com/memohai/memoh/internal/attachment"
@@ -1535,10 +1536,30 @@ func (r *Resolver) selectChatModel(ctx context.Context, req conversation.ChatReq
 }
 
 func (r *Resolver) fetchChatModel(ctx context.Context, modelID string) (models.GetResponse, sqlc.LlmProvider, error) {
-	model, err := r.modelsService.GetByModelID(ctx, modelID)
+	modelRef := strings.TrimSpace(modelID)
+	if modelRef == "" {
+		return models.GetResponse{}, sqlc.LlmProvider{}, fmt.Errorf("model id is required")
+	}
+
+	// Support both model UUID and model_id slug. UUID-formatted slugs still
+	// work because we fall back to GetByModelID when UUID lookup misses.
+	var model models.GetResponse
+	var err error
+	if _, parseErr := db.ParseUUID(modelRef); parseErr == nil {
+		model, err = r.modelsService.GetByID(ctx, modelRef)
+		if err == nil {
+			goto resolved
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return models.GetResponse{}, sqlc.LlmProvider{}, err
+		}
+	}
+	model, err = r.modelsService.GetByModelID(ctx, modelRef)
 	if err != nil {
 		return models.GetResponse{}, sqlc.LlmProvider{}, err
 	}
+
+resolved:
 	if model.Type != models.ModelTypeChat {
 		return models.GetResponse{}, sqlc.LlmProvider{}, fmt.Errorf("model is not a chat model")
 	}

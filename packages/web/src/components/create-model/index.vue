@@ -229,12 +229,15 @@ import { inject, computed, watch, nextTick, type Ref, ref } from 'vue'
 import { toTypedSchema } from '@vee-validate/zod'
 import z from 'zod'
 import { useMutation, useQueryCache } from '@pinia/colada'
-import { postModels, putModelsModelByModelId } from '@memoh/sdk'
+import { postModels, putModelsById, putModelsModelByModelId } from '@memoh/sdk'
 import type { ModelsGetResponse } from '@memoh/sdk'
 import { CLIENT_TYPE_LIST, CLIENT_TYPE_META } from '@/constants/client-types'
+import { useI18n } from 'vue-i18n'
+import { toast } from 'vue-sonner'
 
 const availableInputModalities = ['text', 'image', 'audio', 'video', 'file'] as const
 const selectedModalities = ref<string[]>(['text'])
+const { t } = useI18n()
 
 const formSchema = toTypedSchema(z.object({
   type: z.string().min(1),
@@ -313,6 +316,17 @@ const { mutateAsync: createModel, isLoading: createLoading } = useMutation({
   onSettled: () => queryCache.invalidateQueries({ key: ['provider-models'] }),
 })
 const { mutateAsync: updateModel, isLoading: updateLoading } = useMutation({
+  mutation: async ({ id, data }: { id: string; data: Record<string, unknown> }) => {
+    const { data: result } = await putModelsById({
+      path: { id },
+      body: data as any,
+      throwOnError: true,
+    })
+    return result
+  },
+  onSettled: () => queryCache.invalidateQueries({ key: ['provider-models'] }),
+})
+const { mutateAsync: updateModelByLegacyModelID, isLoading: updateLegacyLoading } = useMutation({
   mutation: async ({ modelId, data }: { modelId: string; data: Record<string, unknown> }) => {
     const { data: result } = await putModelsModelByModelId({
       path: { modelId },
@@ -323,7 +337,7 @@ const { mutateAsync: updateModel, isLoading: updateLoading } = useMutation({
   },
   onSettled: () => queryCache.invalidateQueries({ key: ['provider-models'] }),
 })
-const isLoading = computed(() => createLoading.value || updateLoading.value)
+const isLoading = computed(() => createLoading.value || updateLoading.value || updateLegacyLoading.value)
 
 async function addModel(e: Event) {
   e.preventDefault()
@@ -366,14 +380,29 @@ async function addModel(e: Event) {
     }
 
     if (isEdit) {
-      await updateModel({ modelId: fallback!.model_id, data: payload as any })
+      const modelUUID = fallback?.id
+      if (modelUUID) {
+        await updateModel({ id: modelUUID, data: payload as any })
+      } else {
+        await updateModelByLegacyModelID({ modelId: fallback!.model_id, data: payload as any })
+      }
     } else {
       await createModel(payload as any)
     }
     open.value = false
-  } catch {
+  } catch (error) {
+    toast.error(resolveErrorMessage(error, t('common.saveFailed')))
     return
   }
+}
+
+function resolveErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) return error.message
+  if (error && typeof error === 'object' && 'message' in error) {
+    const msg = (error as { message?: string }).message
+    if (msg && msg.trim()) return msg
+  }
+  return fallback
 }
 
 watch(open, async () => {

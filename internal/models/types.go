@@ -113,6 +113,7 @@ type GetRequest struct {
 }
 
 type GetResponse struct {
+	ID      string `json:"id"`
 	ModelID string `json:"model_id"`
 	Model
 }

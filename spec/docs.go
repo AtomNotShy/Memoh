@@ -6818,6 +6818,9 @@ const docTemplate = `{
                 "dimensions": {
                     "type": "integer"
                 },
+                "id": {
+                    "type": "string"
+                },
                 "input_modalities": {
                     "type": "array",
                     "items": {

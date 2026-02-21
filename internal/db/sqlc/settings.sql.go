@@ -37,9 +37,9 @@ SELECT
   bots.max_context_tokens,
   bots.language,
   bots.allow_guest,
-  chat_models.model_id AS chat_model_id,
-  memory_models.model_id AS memory_model_id,
-  embedding_models.model_id AS embedding_model_id,
+  chat_models.id AS chat_model_id,
+  memory_models.id AS memory_model_id,
+  embedding_models.id AS embedding_model_id,
   search_providers.id AS search_provider_id
 FROM bots
 LEFT JOIN models AS chat_models ON chat_models.id = bots.chat_model_id
@@ -55,9 +55,9 @@ type GetSettingsByBotIDRow struct {
 	MaxContextTokens   int32       `json:"max_context_tokens"`
 	Language           string      `json:"language"`
 	AllowGuest         bool        `json:"allow_guest"`
-	ChatModelID        pgtype.Text `json:"chat_model_id"`
-	MemoryModelID      pgtype.Text `json:"memory_model_id"`
-	EmbeddingModelID   pgtype.Text `json:"embedding_model_id"`
+	ChatModelID        pgtype.UUID `json:"chat_model_id"`
+	MemoryModelID      pgtype.UUID `json:"memory_model_id"`
+	EmbeddingModelID   pgtype.UUID `json:"embedding_model_id"`
 	SearchProviderID   pgtype.UUID `json:"search_provider_id"`
 }
 
@@ -99,9 +99,9 @@ SELECT
   updated.max_context_tokens,
   updated.language,
   updated.allow_guest,
-  chat_models.model_id AS chat_model_id,
-  memory_models.model_id AS memory_model_id,
-  embedding_models.model_id AS embedding_model_id,
+  chat_models.id AS chat_model_id,
+  memory_models.id AS memory_model_id,
+  embedding_models.id AS embedding_model_id,
   search_providers.id AS search_provider_id
 FROM updated
 LEFT JOIN models AS chat_models ON chat_models.id = updated.chat_model_id
@@ -128,9 +128,9 @@ type UpsertBotSettingsRow struct {
 	MaxContextTokens   int32       `json:"max_context_tokens"`
 	Language           string      `json:"language"`
 	AllowGuest         bool        `json:"allow_guest"`
-	ChatModelID        pgtype.Text `json:"chat_model_id"`
-	MemoryModelID      pgtype.Text `json:"memory_model_id"`
-	EmbeddingModelID   pgtype.Text `json:"embedding_model_id"`
+	ChatModelID        pgtype.UUID `json:"chat_model_id"`
+	MemoryModelID      pgtype.UUID `json:"memory_model_id"`
+	EmbeddingModelID   pgtype.UUID `json:"embedding_model_id"`
 	SearchProviderID   pgtype.UUID `json:"search_provider_id"`
 }
 

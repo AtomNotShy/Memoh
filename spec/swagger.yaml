@@ -1185,6 +1185,8 @@ definitions:
         $ref: '#/definitions/models.ClientType'
       dimensions:
         type: integer
+      id:
+        type: string
       input_modalities:
         items:
           type: string

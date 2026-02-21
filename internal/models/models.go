@@ -2,15 +2,20 @@ package models
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/memohai/memoh/internal/db"
 	"github.com/memohai/memoh/internal/db/sqlc"
 )
+
+var ErrModelIDAlreadyExists = errors.New("model_id already exists")
+var ErrModelIDAmbiguous = errors.New("model_id is ambiguous across providers")
 
 // Service provides CRUD operations for models
 type Service struct {
@@ -65,6 +70,9 @@ func (s *Service) Create(ctx context.Context, req AddRequest) (AddResponse, erro
 
 	created, err := s.queries.CreateModel(ctx, params)
 	if err != nil {
+		if db.IsUniqueViolation(err) {
+			return AddResponse{}, ErrModelIDAlreadyExists
+		}
 		return AddResponse{}, fmt.Errorf("failed to create model: %w", err)
 	}
 
@@ -105,7 +113,7 @@ func (s *Service) GetByModelID(ctx context.Context, modelID string) (GetResponse
 		return GetResponse{}, fmt.Errorf("model_id is required")
 	}
 
-	dbModel, err := s.queries.GetModelByModelID(ctx, modelID)
+	dbModel, err := s.findUniqueByModelID(ctx, modelID)
 	if err != nil {
 		return GetResponse{}, fmt.Errorf("failed to get model: %w", err)
 	}
@@ -207,6 +215,7 @@ func (s *Service) UpdateByID(ctx context.Context, id string, req UpdateRequest) 
 	}
 	params := sqlc.UpdateModelParams{
 		ID:              uuid,
+		ModelID:         model.ModelID,
 		InputModalities: inputMod,
 		Type:            string(model.Type),
 	}
@@ -230,6 +239,9 @@ func (s *Service) UpdateByID(ctx context.Context, id string, req UpdateRequest) 
 
 	updated, err := s.queries.UpdateModel(ctx, params)
 	if err != nil {
+		if db.IsUniqueViolation(err) {
+			return GetResponse{}, ErrModelIDAlreadyExists
+		}
 		return GetResponse{}, fmt.Errorf("failed to update model: %w", err)
 	}
 
@@ -241,6 +253,10 @@ func (s *Service) UpdateByModelID(ctx context.Context, modelID string, req Updat
 	if modelID == "" {
 		return GetResponse{}, fmt.Errorf("model_id is required")
 	}
+	current, err := s.findUniqueByModelID(ctx, modelID)
+	if err != nil {
+		return GetResponse{}, fmt.Errorf("failed to update model: %w", err)
+	}
 
 	model := Model(req)
 	if err := model.Validate(); err != nil {
@@ -251,9 +267,8 @@ func (s *Service) UpdateByModelID(ctx context.Context, modelID string, req Updat
 	if model.Type == ModelTypeChat {
 		inputMod = normalizeModalities(model.InputModalities, []string{ModelInputText})
 	}
-	params := sqlc.UpdateModelByModelIDParams{
-		ModelID:         modelID,
-		NewModelID:      model.ModelID,
+	params := sqlc.UpdateModelParams{
+		ID:              current.ID,
 		InputModalities: inputMod,
 		Type:            string(model.Type),
 	}
@@ -275,8 +290,13 @@ func (s *Service) UpdateByModelID(ctx context.Context, modelID string, req Updat
 		params.Dimensions = pgtype.Int4{Int32: int32(model.Dimensions), Valid: true}
 	}
 
-	updated, err := s.queries.UpdateModelByModelID(ctx, params)
+	params.ModelID = model.ModelID
+
+	updated, err := s.queries.UpdateModel(ctx, params)
 	if err != nil {
+		if db.IsUniqueViolation(err) {
+			return GetResponse{}, ErrModelIDAlreadyExists
+		}
 		return GetResponse{}, fmt.Errorf("failed to update model: %w", err)
 	}
 
@@ -302,8 +322,12 @@ func (s *Service) DeleteByModelID(ctx context.Context, modelID string) error {
 	if modelID == "" {
 		return fmt.Errorf("model_id is required")
 	}
+	current, err := s.findUniqueByModelID(ctx, modelID)
+	if err != nil {
+		return fmt.Errorf("failed to delete model: %w", err)
+	}
 
-	if err := s.queries.DeleteModelByModelID(ctx, modelID); err != nil {
+	if err := s.queries.DeleteModel(ctx, current.ID); err != nil {
 		return fmt.Errorf("failed to delete model: %w", err)
 	}
 
@@ -336,6 +360,7 @@ func (s *Service) CountByType(ctx context.Context, modelType ModelType) (int64, 
 
 func convertToGetResponse(dbModel sqlc.Model) GetResponse {
 	resp := GetResponse{
+		ID:      dbModel.ID.String(),
 		ModelID: dbModel.ModelID,
 		Model: Model{
 			ModelID: dbModel.ModelID,
@@ -370,6 +395,20 @@ func convertToGetResponseList(dbModels []sqlc.Model) []GetResponse {
 		responses = append(responses, convertToGetResponse(dbModel))
 	}
 	return responses
+}
+
+func (s *Service) findUniqueByModelID(ctx context.Context, modelID string) (sqlc.Model, error) {
+	rows, err := s.queries.ListModelsByModelID(ctx, modelID)
+	if err != nil {
+		return sqlc.Model{}, err
+	}
+	if len(rows) == 0 {
+		return sqlc.Model{}, pgx.ErrNoRows
+	}
+	if len(rows) > 1 {
+		return sqlc.Model{}, ErrModelIDAmbiguous
+	}
+	return rows[0], nil
 }
 
 // normalizeModalities returns modalities if non-empty, otherwise the provided fallback.
