@@ -1585,7 +1585,7 @@ func (r *Resolver) selectChatModel(ctx context.Context, req conversation.ChatReq
 		return models.GetResponse{}, sqlc.LlmProvider{}, err
 	}
 	for _, m := range candidates {
-		if m.ModelID == modelID {
+		if matchesModelReference(m, modelID) {
 			prov, err := models.FetchProviderByID(ctx, r.queries, m.LlmProviderID)
 			if err != nil {
 				return models.GetResponse{}, sqlc.LlmProvider{}, err
@@ -1629,6 +1629,14 @@ resolved:
 		return models.GetResponse{}, sqlc.LlmProvider{}, err
 	}
 	return model, prov, nil
+}
+
+func matchesModelReference(model models.GetResponse, modelRef string) bool {
+	ref := strings.TrimSpace(modelRef)
+	if ref == "" {
+		return false
+	}
+	return model.ID == ref || model.ModelID == ref
 }
 
 func (r *Resolver) listCandidates(ctx context.Context, providerFilter string) ([]models.GetResponse, error) {
