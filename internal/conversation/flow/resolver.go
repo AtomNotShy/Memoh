@@ -383,6 +383,7 @@ func (r *Resolver) resolve(ctx context.Context, req conversation.ChatRequest) (r
 	displayName := r.resolveDisplayName(ctx, req)
 
 	headerifiedQuery := FormatUserHeader(
+		strings.TrimSpace(req.ExternalMessageID),
 		strings.TrimSpace(req.SourceChannelIdentityID),
 		displayName,
 		req.CurrentChannel,
@@ -1801,6 +1802,7 @@ func parseResolverUUID(id string) (pgtype.UUID, error) {
 // message. It is the single source of truth shared by the YAML header
 // (sent to the LLM) and the inbox content JSONB.
 type UserMessageMeta struct {
+	MessageID         string   `json:"message-id,omitempty"`
 	ChannelIdentityID string   `json:"channel-identity-id"`
 	DisplayName       string   `json:"display-name"`
 	Channel           string   `json:"channel"`
@@ -1812,11 +1814,12 @@ type UserMessageMeta struct {
 
 // BuildUserMessageMeta constructs a UserMessageMeta from the inbound
 // parameters. Both FormatUserHeader and inbox content use this.
-func BuildUserMessageMeta(channelIdentityID, displayName, channel, conversationType, conversationName string, attachmentPaths []string) UserMessageMeta {
+func BuildUserMessageMeta(messageID, channelIdentityID, displayName, channel, conversationType, conversationName string, attachmentPaths []string) UserMessageMeta {
 	if attachmentPaths == nil {
 		attachmentPaths = []string{}
 	}
 	return UserMessageMeta{
+		MessageID:         messageID,
 		ChannelIdentityID: channelIdentityID,
 		DisplayName:       displayName,
 		Channel:           channel,
@@ -1838,6 +1841,9 @@ func (m UserMessageMeta) ToMap() map[string]any {
 		"time":                m.Time,
 		"attachments":         m.AttachmentPaths,
 	}
+	if m.MessageID != "" {
+		result["message-id"] = m.MessageID
+	}
 	if m.ConversationName != "" {
 		result["conversation-name"] = m.ConversationName
 	}
@@ -1848,8 +1854,8 @@ func (m UserMessageMeta) ToMap() map[string]any {
 // the LLM sees structured context (sender, channel, time, attachments)
 // alongside the raw message. This must be the single source of truth for
 // user-message formatting — the agent gateway must NOT add its own header.
-func FormatUserHeader(channelIdentityID, displayName, channel, conversationType, conversationName string, attachmentPaths []string, query string) string {
-	meta := BuildUserMessageMeta(channelIdentityID, displayName, channel, conversationType, conversationName, attachmentPaths)
+func FormatUserHeader(messageID, channelIdentityID, displayName, channel, conversationType, conversationName string, attachmentPaths []string, query string) string {
+	meta := BuildUserMessageMeta(messageID, channelIdentityID, displayName, channel, conversationType, conversationName, attachmentPaths)
 	return FormatUserHeaderFromMeta(meta, query)
 }
 
@@ -1858,6 +1864,9 @@ func FormatUserHeader(channelIdentityID, displayName, channel, conversationType,
 func FormatUserHeaderFromMeta(meta UserMessageMeta, query string) string {
 	var sb strings.Builder
 	sb.WriteString("---\n")
+	if meta.MessageID != "" {
+		writeYAMLString(&sb, "message-id", meta.MessageID)
+	}
 	writeYAMLString(&sb, "channel-identity-id", meta.ChannelIdentityID)
 	writeYAMLString(&sb, "display-name", meta.DisplayName)
 	writeYAMLString(&sb, "channel", meta.Channel)

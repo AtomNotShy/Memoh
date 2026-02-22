@@ -96,7 +96,10 @@ export const createAgent = (
       fs.readText('/data/IDENTITY.md'),
       fs.readText('/data/SOUL.md'),
       fs.readText('/data/TOOLS.md'),
-    ])
+    ]).catch((error) => {
+      console.error(error)
+      return ['', '', '']
+    })
     return { identityContent, soulContent, toolsContent }
   }
 
