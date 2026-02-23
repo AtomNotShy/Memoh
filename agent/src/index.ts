@@ -20,6 +20,7 @@ function parseJwtExp(token: string): number | null {
     const payload = JSON.parse(jsonPayload)
     return payload.exp ? payload.exp * 1000 : null
   } catch (e) {
+    console.error('Failed to parse JWT expiration from token', e)
     return null
   }
 }
