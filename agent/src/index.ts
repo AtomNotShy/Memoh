@@ -3,7 +3,7 @@ import { chatModule } from './modules/chat'
 import { corsMiddleware } from './middlewares/cors'
 import { errorMiddleware } from './middlewares/error'
 import { loadConfig, getBaseUrl as getBaseUrlByConfig } from '@memoh/config'
-import { AuthFetcher } from '@memoh/agent'
+import { AgentAuthContext, AuthFetcher } from '@memoh/agent'
 
 const config = loadConfig('../config.toml')
 
@@ -11,12 +11,54 @@ export const getBaseUrl = () => {
   return getBaseUrlByConfig(config)
 }
 
-export const createAuthFetcher = (bearer: string | undefined): AuthFetcher => {
+function parseJwtExp(token: string): number | null {
+  try {
+    const base64Url = token.split('.')[1]
+    if (!base64Url) return null
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
+    const jsonPayload = Buffer.from(base64, 'base64').toString('utf8')
+    const payload = JSON.parse(jsonPayload)
+    return payload.exp ? payload.exp * 1000 : null
+  } catch (e) {
+    return null
+  }
+}
+
+let refreshPromise: Promise<string> | null = null
+
+export const createAuthFetcher = (auth: AgentAuthContext): AuthFetcher => {
   return async (url: string, options?: RequestInit) => {
+    if (auth.bearer) {
+      const exp = parseJwtExp(auth.bearer)
+      if (exp !== null && exp - Date.now() < 120000) { // Refresh if expiring in < 2 mins
+        if (!refreshPromise) {
+          refreshPromise = (async () => {
+            const refreshUrl = new URL('/auth/refresh', `${getBaseUrl().replace(/\/$/, '')}/`).toString()
+            const res = await fetch(refreshUrl, {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${auth.bearer}` }
+            })
+            if (res.ok) {
+              const data = await res.json()
+              return data.access_token
+            }
+            throw new Error('Failed to refresh token')
+          })().finally(() => {
+            refreshPromise = null
+          })
+        }
+        try {
+          auth.bearer = await refreshPromise
+        } catch (e) {
+          console.error('Token refresh failed', e)
+        }
+      }
+    }
+
     const requestOptions = options ?? {}
     const headers = new Headers(requestOptions.headers || {})
-    if (bearer && !headers.has('Authorization')) {
-      headers.set('Authorization', `Bearer ${bearer}`)
+    if (auth.bearer && !headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${auth.bearer}`)
     }
 
     const baseURL = getBaseUrl()

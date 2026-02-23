@@ -159,6 +159,50 @@ func ChatTokenFromContext(c echo.Context) (ChatToken, error) {
 	return info, nil
 }
 
+// RefreshTokenFromContext extracts the current token from context and issues a new one
+// with the same claims but a renewed expiration time.
+func RefreshTokenFromContext(c echo.Context, secret string, defaultExpiresIn time.Duration) (string, time.Time, error) {
+	token, ok := c.Get("user").(*jwt.Token)
+	if !ok || token == nil || !token.Valid {
+		return "", time.Time{}, echo.NewHTTPError(http.StatusUnauthorized, "invalid token")
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return "", time.Time{}, echo.NewHTTPError(http.StatusUnauthorized, "invalid token claims")
+	}
+
+	// Calculate original duration if possible
+	expiresIn := defaultExpiresIn
+	if expRaw, ok := claims["exp"].(float64); ok {
+		if iatRaw, ok := claims["iat"].(float64); ok {
+			duration := time.Duration(expRaw-iatRaw) * time.Second
+			if duration > 0 {
+				expiresIn = duration
+			}
+		}
+	}
+
+	now := time.Now().UTC()
+	expiresAt := now.Add(expiresIn)
+
+	// Create new claims, copying over existing ones but updating time bounds
+	newClaims := jwt.MapClaims{}
+	for k, v := range claims {
+		newClaims[k] = v
+	}
+	newClaims["iat"] = now.Unix()
+	newClaims["exp"] = expiresAt.Unix()
+
+	newToken := jwt.NewWithClaims(jwt.SigningMethodHS256, newClaims)
+	signed, err := newToken.SignedString([]byte(secret))
+	if err != nil {
+		return "", time.Time{}, err
+	}
+
+	return signed, expiresAt, nil
+}
+
 func claimString(claims jwt.MapClaims, key string) string {
 	raw, ok := claims[key]
 	if !ok || raw == nil {
