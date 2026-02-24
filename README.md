@@ -15,6 +15,7 @@
     <img src="https://img.shields.io/github/forks/memohai/Memoh?style=social" alt="Forks" />
     <img src="https://img.shields.io/github/last-commit/memohai/Memoh" alt="Last Commit" />
     <img src="https://img.shields.io/github/issues/memohai/Memoh" alt="Issues" />
+    <img src="https://github.com/memohai/Memoh/actions/workflows/docker.yml/badge.svg" alt="Docker" />
   </div>
   <div align="center">
     [<a href="https://t.me/memohai">Telegram Group</a>]
@@ -42,6 +43,11 @@ Or manually:
 git clone --depth 1 https://github.com/memohai/Memoh.git
 cd Memoh
 sudo docker compose up -d
+```
+
+> If you experience slow image pulls, use the CN override:
+```bash
+sudo docker compose -f docker-compose.yml -f docker/docker-compose.cn.yml up -d
 ```
 
 > On macOS or if your user is in the `docker` group, `sudo` is not required.

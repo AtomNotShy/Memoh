@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/fx"
@@ -41,13 +40,13 @@ import (
 	"github.com/memohai/memoh/internal/embeddings"
 	"github.com/memohai/memoh/internal/handlers"
 	"github.com/memohai/memoh/internal/healthcheck"
-	"github.com/memohai/memoh/internal/inbox"
 	channelchecker "github.com/memohai/memoh/internal/healthcheck/checkers/channel"
 	mcpchecker "github.com/memohai/memoh/internal/healthcheck/checkers/mcp"
+	"github.com/memohai/memoh/internal/inbox"
 	"github.com/memohai/memoh/internal/logger"
 	"github.com/memohai/memoh/internal/mcp"
-	mcpcontainer "github.com/memohai/memoh/internal/mcp/providers/container"
 	mcpcontacts "github.com/memohai/memoh/internal/mcp/providers/contacts"
+	mcpcontainer "github.com/memohai/memoh/internal/mcp/providers/container"
 	mcpinbox "github.com/memohai/memoh/internal/mcp/providers/inbox"
 	mcpmemory "github.com/memohai/memoh/internal/mcp/providers/memory"
 	mcpmessage "github.com/memohai/memoh/internal/mcp/providers/message"
@@ -131,12 +130,11 @@ func runServe() {
 			provideConfig,
 			boot.ProvideRuntimeConfig,
 			provideLogger,
-			provideContainerdClient,
+			provideContainerService,
 			provideDBConn,
 			provideDBQueries,
 
-			// containerd & mcp infrastructure
-			fx.Annotate(ctr.NewDefaultService, fx.As(new(ctr.Service))),
+			// container & mcp infrastructure
 			provideMCPManager,
 
 			// memory pipeline
@@ -203,6 +201,7 @@ func runServe() {
 			provideServerHandler(handlers.NewScheduleHandler),
 			provideServerHandler(handlers.NewSubagentHandler),
 			provideServerHandler(handlers.NewChannelHandler),
+			provideServerHandler(feishu.NewWebhookServerHandler),
 			provideServerHandler(provideUsersHandler),
 			provideServerHandler(handlers.NewMCPHandler),
 			provideServerHandler(handlers.NewInboxHandler),
@@ -254,18 +253,18 @@ func provideLogger(cfg config.Config) *slog.Logger {
 	return logger.L
 }
 
-func provideContainerdClient(lc fx.Lifecycle, rc *boot.RuntimeConfig) (*containerd.Client, error) {
-	factory := ctr.DefaultClientFactory{SocketPath: rc.ContainerdSocketPath}
-	client, err := factory.New(context.Background())
+func provideContainerService(lc fx.Lifecycle, log *slog.Logger, cfg config.Config, rc *boot.RuntimeConfig) (ctr.Service, error) {
+	svc, cleanup, err := ctr.ProvideService(context.Background(), log, cfg, rc.ContainerBackend)
 	if err != nil {
-		return nil, fmt.Errorf("connect containerd: %w", err)
+		return nil, err
 	}
 	lc.Append(fx.Hook{
 		OnStop: func(ctx context.Context) error {
-			return client.Close()
+			cleanup()
+			return nil
 		},
 	})
-	return client, nil
+	return svc, nil
 }
 
 func provideDBConn(lc fx.Lifecycle, cfg config.Config) (*pgxpool.Pool, error) {
@@ -393,17 +392,18 @@ func provideChatResolver(log *slog.Logger, cfg config.Config, modelsService *mod
 func provideChannelRegistry(log *slog.Logger, hub *local.RouteHub, mediaService *media.Service) *channel.Registry {
 	registry := channel.NewRegistry()
 	
-	// Telegram
 	tgAdapter := telegram.NewTelegramAdapter(log)
 	tgAdapter.SetAssetOpener(mediaService)
 	registry.MustRegister(tgAdapter)
 	
-	// Discord
 	discordAdapter := discord.NewDiscordAdapter(log)
 	discordAdapter.SetAssetOpener(mediaService)
 	registry.MustRegister(discordAdapter)
 	
-	registry.MustRegister(feishu.NewFeishuAdapter(log))
+	feishuAdapter := feishu.NewFeishuAdapter(log)
+	feishuAdapter.SetAssetOpener(mediaService)
+	registry.MustRegister(feishuAdapter)
+  
 	registry.MustRegister(local.NewCLIAdapter(hub))
 	registry.MustRegister(local.NewWebAdapter(hub))
 	return registry
@@ -448,8 +448,8 @@ func provideChannelLifecycleService(channelStore *channel.Store, channelManager 
 // containerd handler & tool gateway
 // ---------------------------------------------------------------------------
 
-func provideContainerdHandler(log *slog.Logger, service ctr.Service, manager *mcp.Manager, cfg config.Config, botService *bots.Service, accountService *accounts.Service, policyService *policy.Service, queries *dbsqlc.Queries) *handlers.ContainerdHandler {
-	return handlers.NewContainerdHandler(log, service, manager, cfg.MCP, cfg.Containerd.Namespace, botService, accountService, policyService, queries)
+func provideContainerdHandler(log *slog.Logger, service ctr.Service, manager *mcp.Manager, cfg config.Config, rc *boot.RuntimeConfig, botService *bots.Service, accountService *accounts.Service, policyService *policy.Service, queries *dbsqlc.Queries) *handlers.ContainerdHandler {
+	return handlers.NewContainerdHandler(log, service, manager, cfg.MCP, cfg.Containerd.Namespace, rc.ContainerBackend, botService, accountService, policyService, queries)
 }
 
 func provideToolGatewayService(log *slog.Logger, cfg config.Config, channelManager *channel.Manager, registry *channel.Registry, routeService *route.DBService, scheduleService *schedule.Service, memoryService *memory.Service, chatService *conversation.Service, accountService *accounts.Service, settingsService *settings.Service, searchProviderService *searchproviders.Service, manager *mcp.Manager, containerdHandler *handlers.ContainerdHandler, mcpConnService *mcp.ConnectionService, mediaService *media.Service, inboxService *inbox.Service) *mcp.ToolGatewayService {
@@ -463,11 +463,7 @@ func provideToolGatewayService(log *slog.Logger, cfg config.Config, channelManag
 	memoryExec := mcpmemory.NewExecutor(log, memoryService, chatService, accountService)
 	webExec := mcpweb.NewExecutor(log, settingsService, searchProviderService)
 	inboxExec := mcpinbox.NewExecutor(log, inboxService)
-	execWorkDir := cfg.MCP.DataMount
-	if strings.TrimSpace(execWorkDir) == "" {
-		execWorkDir = config.DefaultDataMount
-	}
-	fsExec := mcpcontainer.NewExecutor(log, manager, execWorkDir)
+	fsExec := mcpcontainer.NewExecutor(log, manager, config.DefaultDataMount)
 
 	fedGateway := handlers.NewMCPFederationGateway(log, containerdHandler)
 	fedSource := mcpfederation.NewSource(log, fedGateway, mcpConnService)
@@ -488,10 +484,7 @@ func provideToolGatewayService(log *slog.Logger, cfg config.Config, channelManag
 func provideMemoryHandler(log *slog.Logger, service *memory.Service, chatService *conversation.Service, accountService *accounts.Service, cfg config.Config, manager *mcp.Manager) *handlers.MemoryHandler {
 	h := handlers.NewMemoryHandler(log, service, chatService, accountService)
 	if manager != nil {
-		execWorkDir := cfg.MCP.DataMount
-		if strings.TrimSpace(execWorkDir) == "" {
-			execWorkDir = config.DefaultDataMount
-		}
+		execWorkDir := config.DefaultDataMount
 		h.SetMemoryFS(memory.NewMemoryFS(log, manager, execWorkDir))
 	}
 	return h
