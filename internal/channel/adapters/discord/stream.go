@@ -82,6 +82,27 @@ func (s *discordOutboundStream) Push(ctx context.Context, event channel.StreamEv
         }
 		return s.finalizeMessage("Error: " + errText)
 
+    case channel.StreamEventAttachment:
+        if len(event.Attachments) == 0 {
+            return nil
+        }
+        // Finalize current text message before sending attachments
+        s.mu.Lock()
+        finalText := strings.TrimSpace(s.buffer.String())
+        s.mu.Unlock()
+        if finalText != "" {
+            if err := s.finalizeMessage(finalText); err != nil {
+                return err
+            }
+        }
+        // Send attachments
+        for _, att := range event.Attachments {
+            if err := s.sendAttachment(att); err != nil {
+                return err
+            }
+        }
+        return nil
+
     case channel.StreamEventAgentStart, channel.StreamEventAgentEnd, channel.StreamEventPhaseStart, channel.StreamEventPhaseEnd, channel.StreamEventProcessingStarted, channel.StreamEventProcessingCompleted, channel.StreamEventProcessingFailed, channel.StreamEventToolCallStart, channel.StreamEventToolCallEnd:
         // Status events - no action needed for Discord
         return nil
@@ -184,4 +205,27 @@ func (s *discordOutboundStream) finalizeMessage(text string) error {
 
     _, err := s.session.ChannelMessageEdit(s.target, s.msgID, text)
     return err
+}
+
+func (s *discordOutboundStream) sendAttachment(att channel.Attachment) error {
+	ctx := context.Background()
+	file := discordAttachmentToFile(ctx, att, s.adapter.assets)
+	if file == nil {
+		return nil
+	}
+
+	messageSend := &discordgo.MessageSend{
+		Files: []*discordgo.File{file},
+	}
+
+	// Add reply reference if this is the first message and we have a reply target
+	if s.reply != nil && s.reply.MessageID != "" {
+		messageSend.Reference = &discordgo.MessageReference{
+			ChannelID: s.target,
+			MessageID: s.reply.MessageID,
+		}
+	}
+
+	_, err := s.session.ChannelMessageSendComplex(s.target, messageSend)
+	return err
 }

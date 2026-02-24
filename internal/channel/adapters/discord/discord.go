@@ -1,9 +1,13 @@
 package discord
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -11,9 +15,15 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/memohai/memoh/internal/channel"
 	"github.com/memohai/memoh/internal/channel/adapters/common"
+	"github.com/memohai/memoh/internal/media"
 )
 
 const inboundDedupTTL = time.Minute
+
+// assetOpener reads stored asset bytes by content hash.
+type assetOpener interface {
+	Open(ctx context.Context, botID, contentHash string) (io.ReadCloser, media.Asset, error)
+}
 
 type DiscordAdapter struct {
 	logger          *slog.Logger
@@ -21,6 +31,7 @@ type DiscordAdapter struct {
 	sessions        map[string]*discordgo.Session // keyed by bot token
 	handlerRemovers map[string]func()             // keyed by bot token
 	seenMessages    map[string]time.Time          // keyed by token:messageID
+	assets          assetOpener
 }
 
 func NewDiscordAdapter(log *slog.Logger) *DiscordAdapter {
@@ -33,6 +44,13 @@ func NewDiscordAdapter(log *slog.Logger) *DiscordAdapter {
 		handlerRemovers: make(map[string]func()),
 		seenMessages:    make(map[string]time.Time),
 	}
+}
+
+// SetAssetOpener configures the asset opener for reading stored attachments by content hash.
+func (a *DiscordAdapter) SetAssetOpener(opener assetOpener) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.assets = opener
 }
 
 func (a *DiscordAdapter) Type() channel.ChannelType {
@@ -237,24 +255,54 @@ func (a *DiscordAdapter) Send(ctx context.Context, cfg channel.ChannelConfig, ms
 		return fmt.Errorf("discord target is required")
 	}
 
-	err = sendDiscordText(session, channelID, msg)
-	return err
-}
-
-func sendDiscordText(session *discordgo.Session, channelID string, message channel.OutboundMessage) error {
-	textTruncated := truncateDiscordText(message.Message.Text)
-	var err error
-	if message.Message.Reply != nil && message.Message.Reply.MessageID != "" {
-		_, err = session.ChannelMessageSendReply(channelID, textTruncated, &discordgo.MessageReference{
-			ChannelID: channelID,
-			MessageID: message.Message.Reply.MessageID,
-		})
-	} else {
-		_, err = session.ChannelMessageSend(channelID, textTruncated)
+	// Get botID from config metadata if available
+	botID := ""
+	if cfg.BotID != "" {
+		botID = cfg.BotID
 	}
 
-	return err
+	return a.sendDiscordMessage(ctx, session, channelID, botID, msg)
+}
 
+func (a *DiscordAdapter) sendDiscordMessage(ctx context.Context, session *discordgo.Session, channelID, botID string, msg channel.OutboundMessage) error {
+	content := truncateDiscordText(msg.Message.Text)
+
+	// Build message send parameters
+	messageSend := &discordgo.MessageSend{
+		Content: content,
+	}
+
+	if msg.Message.Reply != nil && msg.Message.Reply.MessageID != "" {
+		messageSend.Reference = &discordgo.MessageReference{
+			ChannelID: channelID,
+			MessageID: msg.Message.Reply.MessageID,
+		}
+	}
+
+	// Add attachments if present
+	if len(msg.Message.Attachments) > 0 {
+		files := make([]*discordgo.File, 0, len(msg.Message.Attachments))
+		for _, att := range msg.Message.Attachments {
+			file := discordAttachmentToFile(ctx, att, a.assets)
+			if file != nil {
+				files = append(files, file)
+			}
+		}
+		messageSend.Files = files
+
+		// Discord requires non-empty content when sending files only
+		if messageSend.Content == "" && len(messageSend.Files) > 0 {
+			messageSend.Content = "\u200b"
+		}
+	}
+
+	// Validate: must have content or files
+	if messageSend.Content == "" && len(messageSend.Files) == 0 {
+		return fmt.Errorf("cannot send empty message: no content and no valid attachments")
+	}
+
+	_, err := session.ChannelMessageSendComplex(channelID, messageSend)
+	return err
 }
 
 func truncateDiscordText(text string) string {
@@ -263,6 +311,106 @@ func truncateDiscordText(text string) string {
 		text = text[:discordMaxLength-3] + "..."
 	}
 	return text
+}
+
+// discordAttachmentToFile converts a channel attachment to discordgo.File
+func discordAttachmentToFile(ctx context.Context, att channel.Attachment, opener assetOpener) *discordgo.File {
+	// Get file name
+	name := att.Name
+	if name == "" {
+		name = "attachment"
+		ext := mimeExtension(att.Mime)
+		if ext != "" {
+			name += ext
+		}
+	}
+
+	var reader io.Reader
+
+	// Prefer bot_id from attachment metadata (allows cross-bot file forwarding)
+	var botID string
+	if att.Metadata != nil {
+		if bid, ok := att.Metadata["bot_id"].(string); ok && bid != "" {
+			botID = bid
+		}
+	}
+
+	// Try asset opener first (for ContentHash from media store)
+	if att.ContentHash != "" && botID != "" && opener != nil {
+		if rc, _, err := opener.Open(ctx, botID, att.ContentHash); err == nil {
+			data, _ := io.ReadAll(rc)
+			rc.Close()
+			if len(data) > 0 {
+				reader = bytes.NewReader(data)
+			}
+		}
+	}
+
+	// Fallback to Base64
+	if reader == nil && att.Base64 != "" {
+		data, err := base64DataURLToBytes(att.Base64)
+		if err == nil {
+			reader = bytes.NewReader(data)
+		}
+	}
+
+	// Fallback to URL
+	if reader == nil && att.URL != "" {
+		resp, err := http.Get(att.URL)
+		if err == nil {
+			defer resp.Body.Close()
+			data, _ := io.ReadAll(resp.Body)
+			reader = bytes.NewReader(data)
+		}
+	}
+
+	if reader == nil {
+		return nil
+	}
+
+	return &discordgo.File{
+		Name:   name,
+		Reader: reader,
+	}
+}
+
+// base64DataURLToBytes decodes a base64 data URL to bytes
+func base64DataURLToBytes(dataURL string) ([]byte, error) {
+	parts := strings.SplitN(dataURL, ",", 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid data URL")
+	}
+	return base64.StdEncoding.DecodeString(parts[1])
+}
+
+// mimeExtension returns file extension for common mime types
+func mimeExtension(mime string) string {
+	switch mime {
+	case "image/jpeg", "image/jpg":
+		return ".jpg"
+	case "image/png":
+		return ".png"
+	case "image/gif":
+		return ".gif"
+	case "image/webp":
+		return ".webp"
+	case "video/mp4":
+		return ".mp4"
+	case "video/webm":
+		return ".webm"
+	case "audio/mpeg", "audio/mp3":
+		return ".mp3"
+	case "audio/ogg":
+		return ".ogg"
+	case "audio/wav":
+		return ".wav"
+	case "application/pdf":
+		return ".pdf"
+	case "text/plain":
+		return ".txt"
+	default:
+		return ""
+	}
 }
 
 func (a *DiscordAdapter) OpenStream(ctx context.Context, cfg channel.ChannelConfig, target string, opts channel.StreamOptions) (channel.OutboundStream, error) {
