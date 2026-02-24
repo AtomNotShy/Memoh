@@ -57,7 +57,7 @@ func (s *Service) UpsertBot(ctx context.Context, botID string, req UpsertRequest
 	}
 	isPersonalBot := strings.EqualFold(strings.TrimSpace(botRow.Type), "personal")
 
-	current := normalizeBotSetting(botRow.MaxContextLoadTime, botRow.MaxContextTokens, botRow.MaxInboxItems, botRow.Language, botRow.AllowGuest, botRow.ReasoningEnabled, botRow.ReasoningEffort)
+	current := normalizeBotSetting(botRow.MaxContextLoadTime, botRow.MaxContextTokens, botRow.MaxInboxItems, botRow.Language, botRow.AllowGuest, botRow.ReasoningEnabled, botRow.ReasoningEffort, botRow.HeartbeatEnabled, botRow.HeartbeatInterval)
 	if req.MaxContextLoadTime != nil && *req.MaxContextLoadTime > 0 {
 		current.MaxContextLoadTime = *req.MaxContextLoadTime
 	}
@@ -84,7 +84,12 @@ func (s *Service) UpsertBot(ctx context.Context, botID string, req UpsertRequest
 	if req.ReasoningEffort != nil && isValidReasoningEffort(*req.ReasoningEffort) {
 		current.ReasoningEffort = *req.ReasoningEffort
 	}
-
+	if req.HeartbeatEnabled != nil {
+		current.HeartbeatEnabled = *req.HeartbeatEnabled
+	}
+	if req.HeartbeatInterval != nil && *req.HeartbeatInterval > 0 {
+		current.HeartbeatInterval = *req.HeartbeatInterval
+	}
 	chatModelUUID := pgtype.UUID{}
 	if value := strings.TrimSpace(req.ChatModelID); value != "" {
 		modelID, err := s.resolveModelUUID(ctx, value)
@@ -109,6 +114,14 @@ func (s *Service) UpsertBot(ctx context.Context, botID string, req UpsertRequest
 		}
 		embeddingModelUUID = modelID
 	}
+	heartbeatModelUUID := pgtype.UUID{}
+	if value := strings.TrimSpace(req.HeartbeatModelID); value != "" {
+		modelID, err := s.resolveModelUUID(ctx, value)
+		if err != nil {
+			return Settings{}, err
+		}
+		heartbeatModelUUID = modelID
+	}
 	searchProviderUUID := pgtype.UUID{}
 	if value := strings.TrimSpace(req.SearchProviderID); value != "" {
 		providerID, err := db.ParseUUID(value)
@@ -127,9 +140,13 @@ func (s *Service) UpsertBot(ctx context.Context, botID string, req UpsertRequest
 		AllowGuest:         current.AllowGuest,
 		ReasoningEnabled:   current.ReasoningEnabled,
 		ReasoningEffort:    current.ReasoningEffort,
+		HeartbeatEnabled:  current.HeartbeatEnabled,
+		HeartbeatInterval: int32(current.HeartbeatInterval),
+		HeartbeatPrompt:  "",
 		ChatModelID:        chatModelUUID,
 		MemoryModelID:      memoryModelUUID,
 		EmbeddingModelID:   embeddingModelUUID,
+		HeartbeatModelID:   heartbeatModelUUID,
 		SearchProviderID:   searchProviderUUID,
 	})
 	if err != nil {
@@ -149,7 +166,7 @@ func (s *Service) Delete(ctx context.Context, botID string) error {
 	return s.queries.DeleteSettingsByBotID(ctx, pgID)
 }
 
-func normalizeBotSetting(maxContextLoadTime int32, maxContextTokens int32, maxInboxItems int32, language string, allowGuest bool, reasoningEnabled bool, reasoningEffort string) Settings {
+func normalizeBotSetting(maxContextLoadTime int32, maxContextTokens int32, maxInboxItems int32, language string, allowGuest bool, reasoningEnabled bool, reasoningEffort string, heartbeatEnabled bool, heartbeatInterval int32) Settings {
 	settings := Settings{
 		MaxContextLoadTime: int(maxContextLoadTime),
 		MaxContextTokens:   int(maxContextTokens),
@@ -158,6 +175,8 @@ func normalizeBotSetting(maxContextLoadTime int32, maxContextTokens int32, maxIn
 		AllowGuest:         allowGuest,
 		ReasoningEnabled:   reasoningEnabled,
 		ReasoningEffort:    strings.TrimSpace(reasoningEffort),
+		HeartbeatEnabled:   heartbeatEnabled,
+		HeartbeatInterval:  int(heartbeatInterval),
 	}
 	if settings.MaxContextLoadTime <= 0 {
 		settings.MaxContextLoadTime = DefaultMaxContextLoadTime
@@ -173,6 +192,9 @@ func normalizeBotSetting(maxContextLoadTime int32, maxContextTokens int32, maxIn
 	}
 	if !isValidReasoningEffort(settings.ReasoningEffort) {
 		settings.ReasoningEffort = DefaultReasoningEffort
+	}
+	if settings.HeartbeatInterval <= 0 {
+		settings.HeartbeatInterval = DefaultHeartbeatInterval
 	}
 	return settings
 }
@@ -195,9 +217,12 @@ func normalizeBotSettingsReadRow(row sqlc.GetSettingsByBotIDRow) Settings {
 		row.AllowGuest,
 		row.ReasoningEnabled,
 		row.ReasoningEffort,
+		row.HeartbeatEnabled,
+		row.HeartbeatInterval,
 		row.ChatModelID,
 		row.MemoryModelID,
 		row.EmbeddingModelID,
+		row.HeartbeatModelID,
 		row.SearchProviderID,
 	)
 }
@@ -211,9 +236,12 @@ func normalizeBotSettingsWriteRow(row sqlc.UpsertBotSettingsRow) Settings {
 		row.AllowGuest,
 		row.ReasoningEnabled,
 		row.ReasoningEffort,
+		row.HeartbeatEnabled,
+		row.HeartbeatInterval,
 		row.ChatModelID,
 		row.MemoryModelID,
 		row.EmbeddingModelID,
+		row.HeartbeatModelID,
 		row.SearchProviderID,
 	)
 }
@@ -226,12 +254,15 @@ func normalizeBotSettingsFields(
 	allowGuest bool,
 	reasoningEnabled bool,
 	reasoningEffort string,
+	heartbeatEnabled bool,
+	heartbeatInterval int32,
 	chatModelID pgtype.UUID,
 	memoryModelID pgtype.UUID,
 	embeddingModelID pgtype.UUID,
+	heartbeatModelID pgtype.UUID,
 	searchProviderID pgtype.UUID,
 ) Settings {
-	settings := normalizeBotSetting(maxContextLoadTime, maxContextTokens, maxInboxItems, language, allowGuest, reasoningEnabled, reasoningEffort)
+	settings := normalizeBotSetting(maxContextLoadTime, maxContextTokens, maxInboxItems, language, allowGuest, reasoningEnabled, reasoningEffort, heartbeatEnabled, heartbeatInterval)
 	if chatModelID.Valid {
 		settings.ChatModelID = uuid.UUID(chatModelID.Bytes).String()
 	}
@@ -240,6 +271,9 @@ func normalizeBotSettingsFields(
 	}
 	if embeddingModelID.Valid {
 		settings.EmbeddingModelID = uuid.UUID(embeddingModelID.Bytes).String()
+	}
+	if heartbeatModelID.Valid {
+		settings.HeartbeatModelID = uuid.UUID(heartbeatModelID.Bytes).String()
 	}
 	if searchProviderID.Valid {
 		settings.SearchProviderID = uuid.UUID(searchProviderID.Bytes).String()
