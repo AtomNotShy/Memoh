@@ -46,6 +46,7 @@ func NewAuthHandler(log *slog.Logger, accountService *accounts.Service, jwtSecre
 
 func (h *AuthHandler) Register(e *echo.Echo) {
 	e.POST("/auth/login", h.Login)
+	e.POST("/auth/refresh", h.Refresh)
 }
 
 // Login godoc
@@ -101,5 +102,37 @@ func (h *AuthHandler) Login(c echo.Context) error {
 		Username:    account.Username,
 		Role:        account.Role,
 		DisplayName: account.DisplayName,
+	})
+}
+
+type RefreshResponse struct {
+	AccessToken string `json:"access_token"`
+	TokenType   string `json:"token_type"`
+	ExpiresAt   string `json:"expires_at"`
+}
+
+// Refresh godoc
+// @Summary Refresh Token
+// @Description Issue a new JWT using the existing claims with updated expiration
+// @Tags auth
+// @Security BearerAuth
+// @Success 200 {object} RefreshResponse
+// @Failure 401 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /auth/refresh [post]
+func (h *AuthHandler) Refresh(c echo.Context) error {
+	if strings.TrimSpace(h.jwtSecret) == "" {
+		return echo.NewHTTPError(http.StatusInternalServerError, "jwt secret not configured")
+	}
+
+	token, expiresAt, err := auth.RefreshTokenFromContext(c, h.jwtSecret, h.expiresIn)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusUnauthorized, err.Error())
+	}
+
+	return c.JSON(http.StatusOK, RefreshResponse{
+		AccessToken: token,
+		TokenType:   "Bearer",
+		ExpiresAt:   expiresAt.Format(time.RFC3339),
 	})
 }

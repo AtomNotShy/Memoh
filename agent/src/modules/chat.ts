@@ -25,7 +25,11 @@ export const chatModule = new Elysia({ prefix: '/chat' })
   .use(bearerMiddleware)
   .post('/', async ({ body, bearer }) => {
     console.log('chat', body)
-    const authFetcher = createAuthFetcher(bearer)
+    const auth = {
+      bearer: bearer!,
+      baseUrl: getBaseUrl(),
+    }
+    const authFetcher = createAuthFetcher(auth)
     const { ask } = createAgent({
       model: body.model as ModelConfig,
       activeContextTime: body.activeContextTime,
@@ -33,10 +37,7 @@ export const chatModule = new Elysia({ prefix: '/chat' })
       currentChannel: body.currentChannel,
       allowedActions: body.allowedActions,
       identity: body.identity,
-      auth: {
-        bearer: bearer!,
-        baseUrl: getBaseUrl(),
-      },
+      auth,
       skills: body.usableSkills,
       mcpConnections: body.mcpConnections,
       inbox: body.inbox,
@@ -55,7 +56,11 @@ export const chatModule = new Elysia({ prefix: '/chat' })
   .post('/stream', async function* ({ body, bearer }) {
     console.log('stream', body)
     try {
-      const authFetcher = createAuthFetcher(bearer)
+      const auth = {
+        bearer: bearer!,
+        baseUrl: getBaseUrl(),
+      }
+      const authFetcher = createAuthFetcher(auth)
       const { stream } = createAgent({
         model: body.model as ModelConfig,
         activeContextTime: body.activeContextTime,
@@ -63,10 +68,7 @@ export const chatModule = new Elysia({ prefix: '/chat' })
         currentChannel: body.currentChannel,
         allowedActions: body.allowedActions,
         identity: body.identity,
-        auth: {
-          bearer: bearer!,
-          baseUrl: getBaseUrl(),
-        },
+        auth,
         skills: body.usableSkills,
         mcpConnections: body.mcpConnections,
         inbox: body.inbox,
@@ -96,17 +98,18 @@ export const chatModule = new Elysia({ prefix: '/chat' })
   })
   .post('/trigger-schedule', async ({ body, bearer }) => {
     console.log('trigger-schedule', body)
-    const authFetcher = createAuthFetcher(bearer)
+    const auth = {
+      bearer: bearer!,
+      baseUrl: getBaseUrl(),
+    }
+    const authFetcher = createAuthFetcher(auth)
     const { triggerSchedule } = createAgent({
       model: body.model as ModelConfig,
       activeContextTime: body.activeContextTime,
       channels: body.channels,
       currentChannel: body.currentChannel,
       identity: body.identity,
-      auth: {
-        bearer: bearer!,
-        baseUrl: getBaseUrl(),
-      },
+      auth,
       skills: body.usableSkills,
       mcpConnections: body.mcpConnections,
       inbox: body.inbox,
